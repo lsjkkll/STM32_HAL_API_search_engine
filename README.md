@@ -2,6 +2,17 @@
 
 面向 STM32F1 / STM32F4 的 HAL 库 API 速查工具，纯 Java Swing 实现，零第三方依赖。
 
+## 下载
+
+最新版本见 [Releases](https://github.com/lsjkkll/STM32_HAL_API_search_engine/releases/latest)：
+
+| 文件 | 说明 |
+|---|---|
+| `HAL-Speed-Lookup-Windows-v*.zip` | Windows 免安装包（内置精简 JRE），解压后双击 `HAL-Speed-Lookup.exe`，无需另装 Java |
+| `HAL-Speed-Lookup-Desktop-*.jar` | 可执行 JAR，需 JDK 17+，`java -jar HAL-Speed-Lookup-Desktop-1.0.0.jar` |
+
+发布包附带 `SHA256SUMS.txt` 供校验；可用 `HAL-Speed-Lookup.exe --selftest` 确认数据完整（输出 `SELFTEST OK`）。
+
 ## 功能
 
 - 186 个常用 HAL 接口，覆盖 15 个外设章节（CORE、RCC、GPIO、EXTI、UART、SPI、I2C、TIM、ADC、DMA、FLASH、IWDG、RTC、PWR、CAN）
