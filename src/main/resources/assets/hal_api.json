@@ -1,0 +1,6347 @@
+{
+  "meta": {
+    "name": "STM32 HAL API 速查",
+    "version": "1.3.0",
+    "updated": "2026-10-30",
+    "note": "按 STM32CubeMX 工程组织：每章含 CubeMX 配置步骤、USER CODE 区示例；支持 F1/F4 切换。"
+  },
+  "categories": [
+    {
+      "id": "core",
+      "name": "内核与 HAL",
+      "code": "CORE",
+      "desc": "HAL 初始化、延时、tick 与底层回调",
+      "count": 14,
+      "guide": [
+        "CubeMX 生成的 main() 已按顺序调用 HAL_Init()、SystemClock_Config()、MX_xxx_Init()，不要破坏顺序。",
+        "自己的初始化写在 USER CODE BEGIN 2 与 USER CODE END 2 之间。",
+        "主循环逻辑写在 USER CODE BEGIN 3 / END 3，重新生成代码不会丢。",
+        "周期任务用 HAL_GetTick() 做非阻塞节拍，避免 HAL_Delay 卡住其他逻辑。",
+        "回调与 MSP 自定义代码放 USER CODE BEGIN 4。"
+      ],
+      "demo_title": "CubeMX 工程的用户代码区（main.c）",
+      "demo": "/* main.c：CubeMX 生成框架，只展示你需要填写的 USER CODE 区 */\n\nint main(void)\n{\n  HAL_Init();                 /* CubeMX 生成 */\n  SystemClock_Config();       /* CubeMX 生成 */\n  MX_GPIO_Init();             /* CubeMX 生成 */\n\n  /* USER CODE BEGIN 2 */\n  uint32_t tick = HAL_GetTick();\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    if (HAL_GetTick() - tick >= 500) {\n      tick += 500;\n      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);   /* PC13 已在 CubeMX 配为输出 */\n    }\n    /* USER CODE END 3 */\n  }\n}\n\n/* USER CODE BEGIN 4 */\n/* MSP 初始化补充写在这里，或改 stm32f4xx_hal_msp.c 的 USER CODE 区 */\n/* USER CODE END 4 */\n",
+      "note": "重新生成代码只保留 USER CODE 区内容，业务一定写在区内。F1 的 AFIO 时钟由 CubeMX 在 HAL_MspInit 中自动开启。",
+      "cubemx": [
+        "Project Manager → Project：Toolchain 选 STM32CubeIDE / MDK-ARM，生成 .c/.h。",
+        "Clock Configuration 设定 HCLK；Code Generator 建议勾选 “Generate peripheral initialization as a pair of .c/.h files”。",
+        "本节省略外设，MX_GPIO_Init 等由 CubeMX 生成即可。"
+      ]
+    },
+    {
+      "id": "rcc",
+      "name": "时钟 RCC",
+      "code": "RCC",
+      "desc": "PLL、系统时钟、外设时钟使能",
+      "count": 13,
+      "guide": [
+        "不要手写 SystemClock_Config，CubeMX 生成的版本已包含 PLL、总线分频与 Flash 延迟。",
+        "外设时钟由 CubeMX 在 MX_xxx_Init() 里用 __HAL_RCC_xxx_CLK_ENABLE() 打开。",
+        "需要运行时切频率时调用 HAL_RCC_ClockConfig，并补 SystemCoreClockUpdate()。",
+        "HAL_Delay、串口波特率都依赖 SystemCoreClock，改时钟后必须刷新。"
+      ],
+      "demo_title": "CubeMX 时钟配置的等价代码（SystemClock_Config）",
+      "demo": "/* CubeMX 根据 Clock Configuration 自动生成，仅供理解，不要手改 */\n\nvoid SystemClock_Config(void)\n{\n  RCC_OscInitTypeDef osc = {0};\n  RCC_ClkInitTypeDef clk = {0};\n\n  __HAL_RCC_PWR_CLK_ENABLE();\n  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);\n\n  osc.OscillatorType = RCC_OSCILLATORTYPE_HSE;\n  osc.HSEState = RCC_HSE_ON;\n  osc.PLL.PLLState = RCC_PLL_ON;\n  osc.PLL.PLLSource = RCC_PLLSOURCE_HSE;\n  osc.PLL.PLLM = 8;                     /* 8MHz / 8 = 1MHz */\n  osc.PLL.PLLN = 336;                   /* 1MHz * 336 */\n  osc.PLL.PLLP = RCC_PLLP_DIV2;         /* 168MHz */\n  osc.PLL.PLLQ = 7;\n  HAL_RCC_OscConfig(&osc);\n\n  clk.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK\n                | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;\n  clk.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;\n  clk.AHBCLKDivider = RCC_SYSCLK_DIV1;\n  clk.APB1CLKDivider = RCC_HCLK_DIV4;\n  clk.APB2CLKDivider = RCC_HCLK_DIV2;\n  HAL_RCC_ClockConfig(&clk, FLASH_LATENCY_5);\n}\n",
+      "note": "F1 在 Clock Configuration 里选 HSE 8MHz → PLLMUL 9 → 72MHz，APB1=36MHz、APB2=72MHz、Flash Latency 2，CubeMX 会自动填。",
+      "cubemx": [
+        "RCC → HSE 选 Crystal/Ceramic Resonator（板上 8MHz 晶振）。",
+        "Clock Configuration：PLL Source 选 HSE，PLLM=8、PLLN=336、PLLP=2，得到 168MHz。",
+        "APB1 Prescaler=4（42MHz）、APB2 Prescaler=2（84MHz），回车让 CubeMX 自动解算。",
+        "确认 HCLK 显示 168MHz，Flash Latency 自动变为 5。"
+      ]
+    },
+    {
+      "id": "gpio",
+      "name": "GPIO",
+      "code": "GPIO",
+      "desc": "引脚初始化、读写、外部中断",
+      "count": 12,
+      "guide": [
+        "CubeMX 生成的 MX_GPIO_Init() 已完成时钟与引脚配置，不要重复初始化。",
+        "读键用 HAL_GPIO_ReadPin，写灯 HAL_GPIO_WritePin，翻转 HAL_GPIO_TogglePin。",
+        "按键消抖放主循环：间隔 20ms 再读一次，不要在中断里延时。",
+        "改速度/上下拉请回 CubeMX 重新生成，避免手改 MX_GPIO_Init。"
+      ],
+      "demo_title": "按键控制 LED（CubeMX GPIO 工程）",
+      "demo": "int main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();             /* CubeMX 已配 PC13 输出、PA0 上拉输入 */\n\n  /* USER CODE BEGIN 2 */\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET) {\n      HAL_Delay(20);                                   /* 简单消抖 */\n      if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET) {\n        HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);\n        while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET) { }\n      }\n    }\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1 的 PC13 属于 TAMPER-RTC 引脚，输出能力有限，驱动 LED 建议低电流；F4 无此限制。勾选 EXTI 时 CubeMX 会自动开启 SYSCFG/AFIO。",
+      "cubemx": [
+        "Pinout：PC13 设为 GPIO_Output，Output Level=Low，Speed=Low。",
+        "PA0 设为 GPIO_Input，Pull-up（按键另一端接地）。",
+        "可选：右键引脚设置 User Label（LED / KEY），生成宏更易读。",
+        "System Core → GPIO 中确认模式、上下拉与初始电平。"
+      ]
+    },
+    {
+      "id": "irq",
+      "name": "NVIC 中断",
+      "code": "NVIC",
+      "desc": "优先级、使能、挂起与系统复位",
+      "count": 10,
+      "guide": [
+        "中断入口 xxx_IRQHandler 由 CubeMX 生成，不要手写同名函数。",
+        "业务逻辑写在 USER CODE BEGIN 4 的 HAL_GPIO_EXTI_Callback。",
+        "回调里只置标志或发信号量，耗时处理放主循环。",
+        "优先级在 NVIC 面板设置，数字越小越高；中断里禁止 HAL_Delay。"
+      ],
+      "demo_title": "EXTI 按键中断（CubeMX 工程）",
+      "demo": "/* main.c */\nvolatile uint8_t key_pressed = 0;\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();             /* CubeMX 已把 PA0 配成 EXTI0 */\n\n  /* USER CODE BEGIN 2 */\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    if (key_pressed) {\n      key_pressed = 0;\n      HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);\n    }\n    /* USER CODE END 3 */\n  }\n}\n\n/* USER CODE BEGIN 4 */\nvoid HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)\n{\n  if (GPIO_Pin == GPIO_PIN_0) {\n    key_pressed = 1;\n  }\n}\n/* USER CODE END 4 */\n",
+      "note": "EXTI0_IRQHandler 在 stm32xx_it.c 中由 CubeMX 生成，无需自己写。F1 在 Pinout 里选 EXTI0 后 CubeMX 会开启 AFIO 时钟。",
+      "cubemx": [
+        "PA0 → GPIO_EXTI0，Trigger=Falling Edge，Pull-up。",
+        "NVIC → EXTI line0 interrupt 勾选 Enabled，Preemption Priority=5。",
+        "生成后 stm32f4xx_it.c 自动包含 EXTI0_IRQHandler 并调用 HAL_GPIO_EXTI_IRQHandler。"
+      ]
+    },
+    {
+      "id": "uart",
+      "name": "UART 串口",
+      "code": "UART",
+      "desc": "阻塞 / 中断 / DMA、空闲中断收包",
+      "count": 20,
+      "guide": [
+        "CubeMX 生成 MX_USART1_UART_Init()，句柄 huart1 定义在 usart.c。",
+        "中断接收在 USER CODE 2 调用 HAL_UART_Receive_IT。",
+        "回调写在 USER CODE 4，收到后重新挂 Receive_IT 才能持续收。",
+        "整包接收建议开 IDLE 中断；高速数据在 CubeMX 给 USART 加 DMA。"
+      ],
+      "demo_title": "串口中断收发（CubeMX 工程）",
+      "demo": "UART_HandleTypeDef huart1;     /* CubeMX 生成 */\nstatic uint8_t rx;\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_USART1_UART_Init();\n\n  /* USER CODE BEGIN 2 */\n  uint8_t msg[] = \"UART ready\\r\\n\";\n  HAL_UART_Transmit(&huart1, msg, sizeof(msg) - 1, 100);\n  HAL_UART_Receive_IT(&huart1, &rx, 1);\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    /* USER CODE END 3 */\n  }\n}\n\n/* USER CODE BEGIN 4 */\nvoid HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)\n{\n  if (huart->Instance == USART1) {\n    HAL_UART_Transmit(&huart1, &rx, 1, 10);      /* 回显 */\n    HAL_UART_Receive_IT(&huart1, &rx, 1);        /* 重新挂接收 */\n  }\n}\n/* USER CODE END 4 */\n",
+      "note": "USART1 的 NVIC 与引脚复用由 CubeMX 在 HAL_UART_MspInit 中生成。F1 重映射到 PB6/PB7 时 CubeMX 会自动调用 __HAL_AFIO_REMAP_USART1_ENABLE()。",
+      "cubemx": [
+        "Connectivity → USART1：Mode=Asynchronous。",
+        "Parameter Settings：115200、8bit、None、1 stop、无硬件流控。",
+        "NVIC → USART1 global interrupt 勾选（中断接收必须）。",
+        "PA9/PA10 自动分配；F1 需要重映射时直接在 Pinout 选 PB6/PB7。"
+      ]
+    },
+    {
+      "id": "spi",
+      "name": "SPI",
+      "code": "SPI",
+      "desc": "主从收发、全双工与 DMA",
+      "count": 18,
+      "guide": [
+        "MX_SPI1_Init() 已配好引脚与 SPI 参数。",
+        "收发统一用 HAL_SPI_TransmitReceive——SPI 是全双工，发 N 字节同时收 N 字节。",
+        "片选由 HAL_GPIO_WritePin 手动拉低/拉高，命令与数据都在此区间内。",
+        "大量数据改用 HAL_SPI_TransmitReceive_DMA，并在 CubeMX DMA Settings 添加。"
+      ],
+      "demo_title": "SPI 读 Flash JEDEC ID（CubeMX 工程）",
+      "demo": "SPI_HandleTypeDef hspi1;       /* CubeMX 生成 */\n\nstatic void Read_JedecId(uint8_t id[3])\n{\n  uint8_t tx[4] = {0x9F, 0, 0, 0};   /* 0x9F 读 JEDEC ID */\n  uint8_t rx[4] = {0};\n\n  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);  /* CS 低 */\n  HAL_SPI_TransmitReceive(&hspi1, tx, rx, 4, 100);\n  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_SET);    /* CS 高 */\n\n  id[0] = rx[1]; id[1] = rx[2]; id[2] = rx[3];\n}\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_SPI1_Init();\n\n  /* USER CODE BEGIN 2 */\n  uint8_t flashId[3];\n  Read_JedecId(flashId);\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1 的 SPI1 固定 PA5/6/7，CubeMX 直接配好复用；F4 的 SPI1 在 APB2 84MHz，分频后不要超过从器件上限。",
+      "cubemx": [
+        "SPI1：Mode=Full-Duplex Master，NSS=Disable（软件片选）。",
+        "Parameter：8bit、CPOL=Low、CPHA=1Edge、Prescaler=8（F4 84MHz/8≈10.5MHz）。",
+        "PA5/PA6/PA7 自动分配；片选 PA4 单独设为 GPIO_Output，初始 High。"
+      ]
+    },
+    {
+      "id": "i2c",
+      "name": "I2C",
+      "code": "I2C",
+      "desc": "主机读写、寄存器读写、地址探测",
+      "count": 18,
+      "guide": [
+        "MX_I2C1_Init() 生成 hi2c1，引脚已配复用开漏。",
+        "先 HAL_I2C_IsDeviceReady 探测，再 Mem_Read / Mem_Write。",
+        "7 位地址调用时左移 1 位；连续多字节读一次发起即可。",
+        "通信失败先查上拉、地址与供电，必要时加延时重试。"
+      ],
+      "demo_title": "I2C 扫描与寄存器读写（CubeMX 工程）",
+      "demo": "I2C_HandleTypeDef hi2c1;       /* CubeMX 生成 */\n#define MPU_ADDR 0x68          /* 7 位地址 */\n\nstatic uint8_t ReadReg(uint8_t dev, uint8_t reg)\n{\n  uint8_t v = 0;\n  HAL_I2C_Mem_Read(&hi2c1, dev << 1, reg, I2C_MEMADD_SIZE_8BIT, &v, 1, 100);\n  return v;\n}\n\nstatic void WriteReg(uint8_t dev, uint8_t reg, uint8_t v)\n{\n  HAL_I2C_Mem_Write(&hi2c1, dev << 1, reg, I2C_MEMADD_SIZE_8BIT, &v, 1, 100);\n}\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_I2C1_Init();\n\n  /* USER CODE BEGIN 2 */\n  for (uint8_t a = 1; a < 127; a++) {           /* 总线扫描 */\n    if (HAL_I2C_IsDeviceReady(&hi2c1, a << 1, 3, 10) == HAL_OK) {\n      /* 记录或打印地址 a */\n    }\n  }\n  uint8_t who = ReadReg(MPU_ADDR, 0x75);        /* WHO_AM_I */\n  WriteReg(MPU_ADDR, 0x6B, 0x00);               /* 唤醒 MPU6050 */\n  /* USER CODE END 2 */\n\n  uint8_t accel[6];\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    HAL_I2C_Mem_Read(&hi2c1, MPU_ADDR << 1, 0x3B,\n                     I2C_MEMADD_SIZE_8BIT, accel, 6, 100);\n    HAL_Delay(50);\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1 的 I2C1 默认 PB6/PB7，重映射 PB8/PB9 需在 Pinout 选 I2C1 Remap，CubeMX 会生成 __HAL_AFIO_REMAP_I2C1_ENABLE()；F4 直接选引脚复用即可。",
+      "cubemx": [
+        "I2C1：Mode=I2C，Speed Mode=Standard（100kHz）或 Fast（400kHz）。",
+        "PB6/PB7 自动分配；板上需 4.7k 上拉电阻（CubeMX 默认也开内部上拉）。",
+        "轮询方式无需 NVIC；若用中断/DMA 再在 NVIC、DMA 面板添加。"
+      ]
+    },
+    {
+      "id": "tim",
+      "name": "TIM 定时器",
+      "code": "TIM",
+      "desc": "时基、PWM、输入捕获与输出比较",
+      "count": 26,
+      "guide": [
+        "CubeMX 生成 MX_TIM3_Init()，包含 HAL_TIM_PWM_Init 与 ConfigChannel。",
+        "PWM 引脚在 HAL_TIM_MspPostInit 中配置，生成代码会自动调用。",
+        "USER CODE 2 调用 HAL_TIM_PWM_Start 启动对应通道。",
+        "运行中改占空比用 __HAL_TIM_SET_COMPARE，无需停止定时器。"
+      ],
+      "demo_title": "TIM3 CH1 PWM 呼吸灯（CubeMX 工程）",
+      "demo": "TIM_HandleTypeDef htim3;        /* CubeMX 生成 */\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_TIM3_Init();\n\n  /* USER CODE BEGIN 2 */\n  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    for (uint16_t d = 0; d <= 1000; d += 50) {\n      __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, d);\n      HAL_Delay(20);\n    }\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1 的 TIM3 时钟 72MHz，Prescaler 应设 71；PB4 默认是 JTAG 的 NJTRST，CubeMX 选 TIM3_CH1 时会提示关闭 JTAG（保留 SWD 即可）。",
+      "cubemx": [
+        "Timers → TIM3：Clock Source=Internal Clock。",
+        "Channel1：PWM Generation CH1，Pulse=500（50%）。",
+        "Parameter：Prescaler=83、Counter Period=999（F4 84MHz → 1kHz PWM）。",
+        "PB4 自动分配；F1 在 Pinout 把 PB4 选为 TIM3_CH1（CubeMX 会处理 JTAG 冲突）。"
+      ]
+    },
+    {
+      "id": "adc",
+      "name": "ADC",
+      "code": "ADC",
+      "desc": "采样、轮询 / 中断 / DMA、校准",
+      "count": 14,
+      "guide": [
+        "MX_ADC1_Init() 生成通道配置，PA0 自动设为模拟输入。",
+        "F4 在 USER CODE 2 调用 HAL_ADCEx_Calibration_Start（CubeMX 不会自动加）。",
+        "HAL_ADC_Start 后轮询 PollForConversion，再 GetValue。",
+        "要连续采样就在 CubeMX 打开 Continuous 并添加 DMA。"
+      ],
+      "demo_title": "ADC1 单通道采样（CubeMX 工程）",
+      "demo": "ADC_HandleTypeDef hadc1;       /* CubeMX 生成 */\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_ADC1_Init();\n\n  /* USER CODE BEGIN 2 */\n  HAL_ADCEx_Calibration_Start(&hadc1);   /* F4 需要；F1 无此函数 */\n  HAL_ADC_Start(&hadc1);\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {\n      uint32_t raw = HAL_ADC_GetValue(&hadc1);\n      float volt = raw * 3.3f / 4095.0f;\n      (void)volt;\n    }\n    HAL_Delay(100);\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1 没有校准函数，ADCCLK 最高 14MHz；CubeMX 的 Clock Configuration 会自动限制 ADC 预分频。",
+      "cubemx": [
+        "Analog → ADC1：勾选 IN0（PA0）。",
+        "Parameter：Resolution 12bit、Scan Disabled、Continuous Disabled、External Trigger=Software。",
+        "Rank 1 采样时间 84 cycles（F4）或 55.5 cycles（F1）。",
+        "F4 在 Clock Configuration 设定 ADC Prescaler，保证 ADCCLK ≤36MHz。"
+      ]
+    },
+    {
+      "id": "dma",
+      "name": "DMA",
+      "code": "DMA",
+      "desc": "通道配置、搬运与中断回调",
+      "count": 10,
+      "guide": [
+        "DMA 通道参数由 CubeMX 生成，不需要手写 DMA_InitTypeDef。",
+        "__HAL_LINKDMA 已由生成代码完成，外设与 DMA 自动关联。",
+        "USER CODE 2 调用 HAL_ADC_Start_DMA 启动，缓冲区由 DMA 循环刷新。",
+        "需要处理每轮完成时，写 HAL_ADC_ConvCpltCallback；循环模式下每轮都会触发。"
+      ],
+      "demo_title": "ADC + DMA 循环搬运（CubeMX 工程）",
+      "demo": "ADC_HandleTypeDef hadc1;\nDMA_HandleTypeDef hdma_adc1;   /* 均由 CubeMX 生成 */\nstatic uint16_t adc_buf[32];\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_DMA_Init();               /* 必须在 MX_ADC1_Init 之前 */\n  MX_ADC1_Init();\n\n  /* USER CODE BEGIN 2 */\n  HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_buf, 32);\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    uint32_t sum = 0;\n    for (int i = 0; i < 32; i++) sum += adc_buf[i];\n    (void)sum;                 /* 缓冲由 DMA 自动更新 */\n    HAL_Delay(10);\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1 的 ADC1 对应 DMA1 Channel1，CubeMX 自动选好；F4 是 DMA2 Stream0 Channel0。多个 DMA 外设时注意 Stream 冲突。",
+      "cubemx": [
+        "ADC1 → DMA Settings → Add：Mode=Circular，Data Width=Half Word。",
+        "ADC Parameter 打开 Continuous Conversion 与 DMA Continuous Requests。",
+        "NVIC → DMA2 Stream0（F1 为 DMA1 Channel1）勾选中断。",
+        "CubeMX 自动生成 MX_DMA_Init，并保证在 MX_ADC1_Init 之前调用。"
+      ]
+    },
+    {
+      "id": "flash",
+      "name": "FLASH",
+      "code": "FLASH",
+      "desc": "解锁、擦除、编程与错误码",
+      "count": 6,
+      "guide": [
+        "擦写函数写在 USER CODE 4，使用 HAL_FLASH_Unlock / Program / Lock。",
+        "按页（F1）或扇区（F4）擦除，地址必须对齐。",
+        "写前清错误标志，写后回读校验。",
+        "不要在中断里擦写 Flash，耗时且会阻塞取指。"
+      ],
+      "demo_title": "Flash 参数存储（CubeMX 工程）",
+      "demo": "#define PARAM_ADDR  0x08060000UL      /* F4 Sector 7；按实际芯片调整 */\n\n/* USER CODE BEGIN 4 */\nstatic int SaveParam(uint32_t value)\n{\n  FLASH_EraseInitTypeDef erase = {0};\n  uint32_t err = 0;\n\n  HAL_FLASH_Unlock();\n  __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR\n                       | FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);\n\n  erase.TypeErase = FLASH_TYPEERASE_SECTORS;   /* F1 用 FLASH_TYPEERASE_PAGES */\n  erase.Sector = FLASH_SECTOR_7;\n  erase.NbSectors = 1;\n  erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;\n  if (HAL_FLASHEx_Erase(&erase, &err) != HAL_OK) { HAL_FLASH_Lock(); return -1; }\n\n  if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, PARAM_ADDR, value) != HAL_OK) {\n    HAL_FLASH_Lock();\n    return -1;\n  }\n  HAL_FLASH_Lock();\n  return (*(volatile uint32_t *)PARAM_ADDR == value) ? 0 : -1;\n}\n/* USER CODE END 4 */\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n\n  /* USER CODE BEGIN 2 */\n  SaveParam(0x5A5A1234);\n  /* USER CODE END 2 */\n\n  while (1) { }\n}\n",
+      "note": "F1 页大小 1KB/2KB，可在 CubeMX 生成的链接脚本里查；F4 扇区大小不同，擦除地址必须是扇区首地址。",
+      "cubemx": [
+        "无需外设配置；Project Manager 确认芯片型号与 Flash 容量。",
+        "若存参数，建议预留最后一页/扇区，必要时在链接脚本中避开。",
+        "生成代码体积较大时，先确认编译后占用，再决定参数区地址。"
+      ]
+    },
+    {
+      "id": "wdg",
+      "name": "看门狗",
+      "code": "WDG",
+      "desc": "IWDG / WWDG 初始化与喂狗",
+      "count": 5,
+      "guide": [
+        "看门狗在 MX_IWDG_Init 之后立即生效。",
+        "主循环定期 HAL_IWDG_Refresh，间隔必须小于超时时间。",
+        "喂狗放主循环，不要放定时中断，否则主循环卡死仍会被喂。",
+        "量产前确认超时大于最坏任务耗时，并实测验证。"
+      ],
+      "demo_title": "IWDG 看门狗（CubeMX 工程）",
+      "demo": "IWDG_HandleTypeDef hiwdg;      /* CubeMX 生成 */\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_IWDG_Init();              /* 生成后看门狗已启动 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    HAL_IWDG_Refresh(&hiwdg);  /* 定期喂狗，间隔 < 8s */\n    HAL_Delay(100);\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1/F4 的 IWDG 都由 LSI 驱动，超时公式相同；CubeMX 显示的 Timeout 是理论值，量产前实测确认。",
+      "cubemx": [
+        "System Core → IWDG：Activated，Prescaler=64，Reload=4095（CubeMX 显示约 8.19s）。",
+        "生成 MX_IWDG_Init()，CubeMX 会自动在 main() 中调用。",
+        "调试阶段可先把 IWDG 设为 Disabled，避免断点触发复位。"
+      ]
+    },
+    {
+      "id": "rtc",
+      "name": "RTC 实时时钟",
+      "code": "RTC",
+      "desc": "时间日期、闹钟与备份域",
+      "count": 7,
+      "guide": [
+        "MX_RTC_Init() 生成时钟源、分频与日历，句柄 hrtc 在 rtc.c。",
+        "读时间先 HAL_RTC_GetTime，再 HAL_RTC_GetDate（后者负责解锁）。",
+        "设置时间用 HAL_RTC_SetTime / SetDate，格式 RTC_FORMAT_BIN。",
+        "掉电走时靠 VBAT；没有 VBAT 时每次上电需重新设置。"
+      ],
+      "demo_title": "RTC 设置与读取（CubeMX 工程）",
+      "demo": "RTC_HandleTypeDef hrtc;        /* CubeMX 生成 */\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_RTC_Init();\n\n  /* USER CODE BEGIN 2 */\n  RTC_DateTypeDef d = {0};\n  d.Year = 26; d.Month = RTC_MONTH_OCTOBER; d.Date = 30;\n  d.WeekDay = RTC_WEEKDAY_FRIDAY;\n  HAL_RTC_SetDate(&hrtc, &d, RTC_FORMAT_BIN);\n\n  RTC_TimeTypeDef t = {0};\n  t.Hours = 9; t.Minutes = 0; t.Seconds = 0;\n  HAL_RTC_SetTime(&hrtc, &t, RTC_FORMAT_BIN);\n  /* USER CODE END 2 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    RTC_TimeTypeDef now;\n    RTC_DateTypeDef today;\n    HAL_RTC_GetTime(&hrtc, &now, RTC_FORMAT_BIN);\n    HAL_RTC_GetDate(&hrtc, &today, RTC_FORMAT_BIN);\n    HAL_Delay(1000);\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1 的 RTC 只有 32 位秒计数（RTC_TimeTypeDef 没有 Hours/Minutes），CubeMX 生成的结构不同，需要自行换算日期时间。",
+      "cubemx": [
+        "RCC → LSE 选 Crystal/Ceramic Resonator（32.768kHz）。",
+        "RTC → Activate Clock Source=LSE，Activate Calendar，Hour Format=24h。",
+        "可设置初始日期时间；需要闹钟/唤醒时在 NVIC 勾选 RTC Alarm。"
+      ]
+    },
+    {
+      "id": "pwr",
+      "name": "低功耗 PWR",
+      "code": "PWR",
+      "desc": "Sleep / Stop / Standby 与唤醒",
+      "count": 5,
+      "guide": [
+        "Stop 模式保留 SRAM 与寄存器，唤醒后从停止处继续执行。",
+        "进 Stop 前调用 HAL_SuspendTick，否则 SysTick 会立即唤醒。",
+        "HAL_PWR_EnterSTOPMode 返回后时钟变回 HSI，必须重新 SystemClock_Config。",
+        "唤醒后 HAL_ResumeTick 恢复 HAL_Delay 与节拍。"
+      ],
+      "demo_title": "Stop 模式低功耗（CubeMX 工程）",
+      "demo": "int main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();              /* PA0 已配成 EXTI0 唤醒源 */\n\n  while (1) {\n    /* USER CODE BEGIN 3 */\n    HAL_Delay(2000);\n\n    HAL_SuspendTick();\n    HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);\n\n    SystemClock_Config();      /* 唤醒后恢复 168MHz */\n    HAL_ResumeTick();\n    /* USER CODE END 3 */\n  }\n}\n",
+      "note": "F1 的宏名是 PWR_Regulator_ON / PWR_STOPEntry_WFI；Standby 唤醒等同复位，程序从 main 重新执行。",
+      "cubemx": [
+        "唤醒源：PA0 配 GPIO_EXTI0（Falling），NVIC 使能 EXTI0。",
+        "若用 RTC 唤醒：RTC 勾选 WakeUp，并在 NVIC 使能 RTC Wakeup。",
+        "Stop/Standby 模式本身在代码里调用，CubeMX 无需额外配置。"
+      ]
+    },
+    {
+      "id": "can",
+      "name": "CAN",
+      "code": "CAN",
+      "desc": "位时序、收发报文与过滤器",
+      "count": 8,
+      "guide": [
+        "MX_CAN1_Init() 只生成位时序，过滤器要自己配。",
+        "HAL_CAN_ConfigFilter 后调用 HAL_CAN_Start 启动。",
+        "接收用 ActivateNotification + FIFO0 回调 GetRxMessage。",
+        "总线上必须有另一个节点或收发器，否则会进 Bus-Off。"
+      ],
+      "demo_title": "CAN 500kbps 收发（CubeMX 工程）",
+      "demo": "CAN_HandleTypeDef hcan1;       /* CubeMX 生成 */\n\nint main(void)\n{\n  HAL_Init();\n  SystemClock_Config();\n  MX_GPIO_Init();\n  MX_CAN1_Init();\n\n  /* USER CODE BEGIN 2 */\n  CAN_FilterTypeDef f = {0};\n  f.FilterBank = 0;\n  f.FilterMode = CAN_FILTERMODE_IDMASK;\n  f.FilterScale = CAN_FILTERSCALE_32BIT;\n  f.FilterIdHigh = 0; f.FilterIdLow = 0;\n  f.FilterMaskIdHigh = 0; f.FilterMaskIdLow = 0;   /* 全通过 */\n  f.FilterFIFOAssignment = CAN_RX_FIFO0;\n  f.FilterActivation = ENABLE;\n  f.SlaveStartFilterBank = 14;\n  HAL_CAN_ConfigFilter(&hcan1, &f);\n\n  HAL_CAN_Start(&hcan1);\n  HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING);\n\n  CAN_TxHeaderTypeDef tx = {0};\n  tx.StdId = 0x123; tx.IDE = CAN_ID_STD;\n  tx.RTR = CAN_RTR_DATA; tx.DLC = 2;\n  uint8_t data[2] = {0x11, 0x22};\n  uint32_t mailbox;\n  HAL_CAN_AddTxMessage(&hcan1, &tx, data, &mailbox);\n  /* USER CODE END 2 */\n\n  while (1) { }\n}\n\n/* USER CODE BEGIN 4 */\nvoid HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)\n{\n  CAN_RxHeaderTypeDef rx;\n  uint8_t data[8];\n  HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx, data);\n}\n/* USER CODE END 4 */\n",
+      "note": "F1 过滤器组数量与 SlaveStartFilterBank 不同，以 CubeMX 生成的 can.c 为准；F1 重映射 PB8/PB9 时 CubeMX 自动调用 __HAL_AFIO_REMAP_CAN1_2()。",
+      "cubemx": [
+        "Connectivity → CAN1：Activated，Bit Timings Prescaler=6、BS1=11、BS2=2、SJW=1（42MHz → 500kbps）。",
+        "PA11/PA12 自动分配；F1 可重映射到 PB8/PB9。",
+        "NVIC → CAN1 RX0 interrupt 勾选。"
+      ]
+    }
+  ],
+  "apis": [
+    {
+      "id": "HAL_Init",
+      "name": "HAL_Init",
+      "cat": "core",
+      "common": true,
+      "header": "stm32xx_hal.h",
+      "sig": "HAL_StatusTypeDef HAL_Init(void)",
+      "brief": "初始化 HAL 库：复位所有外设、初始化 Flash 接口与 SysTick 时基，必须在 main 中第一个调用。",
+      "params": [],
+      "ret": "HAL_OK 初始化成功；HAL_ERROR 失败",
+      "notes": [
+        "典型位置：main() 开头，先于 HAL_Init() 之外的任何 HAL 函数。",
+        "内部会调用 HAL_MspInit()（弱函数），可在其中处理时钟、NVIC 等底层初始化。",
+        "默认把 SysTick 配成 1 ms 中断，HAL_Delay / HAL_GetTick 依赖它。"
+      ],
+      "example": "int main(void)\n{\n  HAL_Init();                       // 1. HAL 初始化\n  SystemClock_Config();             // 2. 配置系统时钟\n  MX_GPIO_Init();                   // 3. 外设初始化\n  while (1) { /* ... */ }\n}",
+      "keywords": [
+        "初始化",
+        "init",
+        "启动",
+        "hal"
+      ],
+      "related": [
+        "HAL_MspInit",
+        "HAL_Delay",
+        "HAL_GetTick"
+      ]
+    },
+    {
+      "id": "HAL_DeInit",
+      "name": "HAL_DeInit",
+      "cat": "core",
+      "header": "stm32xx_hal.h",
+      "sig": "HAL_StatusTypeDef HAL_DeInit(void)",
+      "brief": "把 HAL 恢复为复位后状态：关闭 SysTick 中断、复位所有外设。",
+      "params": [],
+      "ret": "HAL_OK",
+      "notes": [
+        "调试或实现软件复位流程时使用；正常应用很少调用。"
+      ],
+      "example": "",
+      "keywords": [
+        "反初始化",
+        "复位",
+        "deinit"
+      ],
+      "related": [
+        "HAL_Init"
+      ]
+    },
+    {
+      "id": "HAL_MspInit",
+      "name": "HAL_MspInit",
+      "cat": "core",
+      "header": "stm32xx_hal.h",
+      "sig": "void HAL_MspInit(void)   /* __weak */",
+      "brief": "HAL 底层初始化回调，由 HAL_Init 调用，CubeMX 生成在 stm32xx_hal_msp.c 中。",
+      "params": [],
+      "ret": "void",
+      "notes": [
+        "用于使能电源/系统时钟、设置 NVIC 优先级分组等芯片级配置。",
+        "函数带 __weak，用户可重写；CubeMX 工程通常已自动生成，不必手写。"
+      ],
+      "example": "void HAL_MspInit(void)\n{\n  __HAL_RCC_SYSCFG_CLK_ENABLE();\n  __HAL_RCC_PWR_CLK_ENABLE();\n  HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);\n}",
+      "keywords": [
+        "msp",
+        "底层初始化",
+        "回调"
+      ],
+      "related": [
+        "HAL_Init",
+        "HAL_NVIC_SetPriorityGrouping"
+      ]
+    },
+    {
+      "id": "HAL_Delay",
+      "name": "HAL_Delay",
+      "cat": "core",
+      "common": true,
+      "header": "stm32xx_hal.h",
+      "sig": "void HAL_Delay(uint32_t Delay)",
+      "brief": "基于 SysTick 的毫秒级阻塞延时。",
+      "params": [
+        {
+          "n": "Delay",
+          "t": "uint32_t",
+          "d": "延时时长，单位 ms"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "依赖 SysTick 中断，若在更高优先级中断里调用且该优先级高于 SysTick，会出现死等。",
+        "延时期间 CPU 空转，不进入低功耗，不建议用于长延时。",
+        "HAL_Delay(0) 不做延时，但会等待 tick 前进 1 次（部分版本）。"
+      ],
+      "example": "HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);\nHAL_Delay(500);   // 500 ms 闪烁",
+      "keywords": [
+        "延时",
+        "delay",
+        "毫秒",
+        "ms"
+      ],
+      "related": [
+        "HAL_GetTick",
+        "HAL_IncTick"
+      ]
+    },
+    {
+      "id": "HAL_GetTick",
+      "name": "HAL_GetTick",
+      "cat": "core",
+      "common": true,
+      "header": "stm32xx_hal.h",
+      "sig": "uint32_t HAL_GetTick(void)",
+      "brief": "返回系统启动以来经过的毫秒数（1 ms 递增的全局 tick）。",
+      "params": [],
+      "ret": "uint32_t 毫秒计数，约 49.7 天溢出一次",
+      "notes": [
+        "可用于非阻塞超时判断：if (HAL_GetTick() - t0 > timeout) ...，差值比较天然兼容溢出。",
+        "掉电或进 STOP 模式后 tick 会停止（除非 RTC 唤醒并重新校准）。"
+      ],
+      "example": "uint32_t t0 = HAL_GetTick();\nwhile (HAL_GetTick() - t0 < 1000) {\n  if (flag) break;            // 1 s 超时轮询\n}",
+      "keywords": [
+        "tick",
+        "计时",
+        "超时",
+        "时间戳"
+      ],
+      "related": [
+        "HAL_Delay",
+        "HAL_IncTick"
+      ]
+    },
+    {
+      "id": "HAL_IncTick",
+      "name": "HAL_IncTick",
+      "cat": "core",
+      "common": true,
+      "header": "stm32xx_hal.h",
+      "sig": "void HAL_IncTick(void)",
+      "brief": "把全局 tick 计数加 1，由 SysTick 中断服务函数调用。",
+      "params": [],
+      "ret": "void",
+      "notes": [
+        "必须在 SysTick_Handler() 中调用，否则 HAL_Delay 与所有超时机制失效。",
+        "CubeMX 生成的 stm32xx_it.c 已包含：HAL_SYSTICK_IRQHandler() 或 HAL_IncTick()。"
+      ],
+      "example": "void SysTick_Handler(void)\n{\n  HAL_IncTick();          // 必需\n}",
+      "keywords": [
+        "systick",
+        "tick",
+        "中断"
+      ],
+      "related": [
+        "HAL_GetTick",
+        "HAL_SYSTICK_Config"
+      ]
+    },
+    {
+      "id": "HAL_SYSTICK_Config",
+      "name": "HAL_SYSTICK_Config",
+      "cat": "core",
+      "header": "stm32xx_hal.h",
+      "sig": "uint32_t HAL_SYSTICK_Config(uint32_t TicksNumb)",
+      "brief": "重新配置 SysTick 重装载值并使能计数中断。",
+      "params": [
+        {
+          "n": "TicksNumb",
+          "t": "uint32_t",
+          "d": "两次中断之间的时钟节拍数，通常写 SystemCoreClock/1000 得到 1 ms"
+        }
+      ],
+      "ret": "0 成功；1 参数错误（超过 24 位重装载范围）",
+      "notes": [
+        "修改系统主频后需要重新调用，否则延时比例失真。",
+        "一般由 HAL_Init 内部完成。"
+      ],
+      "example": "HAL_SYSTICK_Config(SystemCoreClock / 1000);  // 1 ms tick",
+      "keywords": [
+        "systick",
+        "重装载",
+        "时基"
+      ],
+      "related": [
+        "HAL_IncTick",
+        "SystemCoreClockUpdate"
+      ]
+    },
+    {
+      "id": "HAL_GetUIDw0",
+      "name": "HAL_GetUIDw0",
+      "cat": "core",
+      "header": "stm32xx_hal.h",
+      "sig": "uint32_t HAL_GetUIDw0(void)",
+      "brief": "读取芯片 96 位唯一 ID 的低 32 位，常用于生成设备序列号。",
+      "params": [],
+      "ret": "uint32_t UID 低 32 位",
+      "notes": [
+        "配合 HAL_GetUIDw1 / HAL_GetUIDw2 拼出完整 96 位 UID。"
+      ],
+      "example": "uint32_t uid[3] = { HAL_GetUIDw0(), HAL_GetUIDw1(), HAL_GetUIDw2() };",
+      "keywords": [
+        "uid",
+        "唯一id",
+        "序列号"
+      ],
+      "related": [
+        "HAL_GetUIDw1",
+        "HAL_GetUIDw2"
+      ]
+    },
+    {
+      "id": "HAL_GetUIDw1",
+      "name": "HAL_GetUIDw1",
+      "cat": "core",
+      "header": "stm32xx_hal.h",
+      "sig": "uint32_t HAL_GetUIDw1(void)",
+      "brief": "读取芯片 96 位唯一 ID 的中间 32 位。",
+      "params": [],
+      "ret": "uint32_t UID 中 32 位",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "uid",
+        "唯一id"
+      ],
+      "related": [
+        "HAL_GetUIDw0",
+        "HAL_GetUIDw2"
+      ]
+    },
+    {
+      "id": "HAL_GetUIDw2",
+      "name": "HAL_GetUIDw2",
+      "cat": "core",
+      "header": "stm32xx_hal.h",
+      "sig": "uint32_t HAL_GetUIDw2(void)",
+      "brief": "读取芯片 96 位唯一 ID 的高 32 位。",
+      "params": [],
+      "ret": "uint32_t UID 高 32 位",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "uid",
+        "唯一id"
+      ],
+      "related": [
+        "HAL_GetUIDw0",
+        "HAL_GetUIDw1"
+      ]
+    },
+    {
+      "id": "HAL_MAX_DELAY",
+      "name": "HAL_MAX_DELAY",
+      "cat": "core",
+      "header": "stm32xx_hal_def.h",
+      "sig": "#define HAL_MAX_DELAY  0xFFFFFFFFU",
+      "brief": "表示无限等待的超时宏，传给带 Timeout 参数的 HAL 函数即可一直阻塞。",
+      "params": [],
+      "ret": "宏常量",
+      "notes": [
+        "配合 HAL_UART_Transmit(&huart1, buf, len, HAL_MAX_DELAY) 实现阻塞发送。"
+      ],
+      "example": "HAL_UART_Transmit(&huart1, (uint8_t*)\"OK\\r\\n\", 4, HAL_MAX_DELAY);",
+      "keywords": [
+        "超时",
+        "timeout",
+        "宏"
+      ],
+      "related": [
+        "HAL_UART_Transmit"
+      ]
+    },
+    {
+      "id": "__disable_irq",
+      "name": "__disable_irq",
+      "cat": "core",
+      "header": "cmsis_gcc.h",
+      "sig": "void __disable_irq(void)",
+      "brief": "关闭全局中断（写 PRIMASK），常用于临界区保护。",
+      "params": [],
+      "ret": "void",
+      "notes": [
+        "恢复时使用 __enable_irq()；若原状态可能是关闭的，应改用 __get_PRIMASK / __set_PRIMASK 保存恢复。",
+        "临界区越短越好，避免影响中断实时性。"
+      ],
+      "example": "uint32_t primask = __get_PRIMASK();\n__disable_irq();\n/* 临界区 */\n__set_PRIMASK(primask);",
+      "keywords": [
+        "中断",
+        "临界区",
+        "primask"
+      ],
+      "related": [
+        "__enable_irq"
+      ]
+    },
+    {
+      "id": "__enable_irq",
+      "name": "__enable_irq",
+      "cat": "core",
+      "header": "cmsis_gcc.h",
+      "sig": "void __enable_irq(void)",
+      "brief": "打开全局中断（清 PRIMASK）。",
+      "params": [],
+      "ret": "void",
+      "notes": [
+        "与 __disable_irq 成对使用。"
+      ],
+      "example": "",
+      "keywords": [
+        "中断",
+        "使能"
+      ],
+      "related": [
+        "__disable_irq"
+      ]
+    },
+    {
+      "id": "__WFI",
+      "name": "__WFI",
+      "cat": "core",
+      "header": "cmsis_gcc.h",
+      "sig": "void __WFI(void)",
+      "brief": "执行 WFI 指令，CPU 进入睡眠直到任意中断唤醒。",
+      "params": [],
+      "ret": "void",
+      "notes": [
+        "主循环空闲时调用可显著降低功耗；进 STOP 模式请用 HAL_PWR_EnterSTOPMode。"
+      ],
+      "example": "while (1) {\n  if (work_pending) do_work();\n  else __WFI();\n}",
+      "keywords": [
+        "低功耗",
+        "睡眠",
+        "wfi"
+      ],
+      "related": [
+        "HAL_PWR_EnterSLEEPMode"
+      ]
+    },
+    {
+      "id": "HAL_RCC_OscConfig",
+      "name": "HAL_RCC_OscConfig",
+      "cat": "rcc",
+      "common": true,
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "HAL_StatusTypeDef HAL_RCC_OscConfig(RCC_OscInitTypeDef *RCC_OscInitStruct)",
+      "brief": "配置 HSE/HSI/LSE/LSI 以及 PLL，是 SystemClock_Config 的核心步骤。",
+      "params": [
+        {
+          "n": "RCC_OscInitStruct",
+          "t": "RCC_OscInitTypeDef *",
+          "d": "振荡器与 PLL 参数，OscillatorType 指定要配置的源"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR（如 HSE 起振超时） / HAL_TIMEOUT",
+      "notes": [
+        "修改 PLL 前函数会先把系统时钟切回 HSI，因此调用时不要在其他外设正在依赖 PLL 输出的情况下频繁切换。",
+        "PLL 参数要满足参考手册的 VCO 输入/输出范围，否则配置失败。",
+        "HSE 起振失败通常是晶振或负载电容问题，而非代码问题。"
+      ],
+      "example": "RCC_OscInitTypeDef osc = {0};\nosc.OscillatorType = RCC_OSCILLATORTYPE_HSE;\nosc.HSEState = RCC_HSE_ON;\nosc.PLL.PLLState = RCC_PLL_ON;\nosc.PLL.PLLSource = RCC_PLLSOURCE_HSE;\nosc.PLL.PLLM = 25; osc.PLL.PLLN = 336; osc.PLL.PLLP = 2; osc.PLL.PLLQ = 7;\nif (HAL_RCC_OscConfig(&osc) != HAL_OK) { Error_Handler(); }",
+      "keywords": [
+        "钟",
+        "clock",
+        "pll",
+        "hse",
+        "hsi",
+        "晶振"
+      ],
+      "related": [
+        "HAL_RCC_ClockConfig",
+        "SystemClock_Config"
+      ],
+      "diff": {
+        "f1": "F1 的 PLL 字段是 PLLMUL（倍频）与 PLLSource，没有 PLLM/PLLN/PLLP/PLLQ；常见配置为 HSE 8 MHz × 9 = 72 MHz。",
+        "f4": "F4 的 PLL 用 PLLM/PLLN/PLLP/PLLQ 四个参数，需保证 VCO 频率在 100-432 MHz 范围内。"
+      },
+      "example_f1": "RCC_OscInitTypeDef osc = {0};\nosc.OscillatorType = RCC_OSCILLATORTYPE_HSE;\nosc.HSEState       = RCC_HSE_ON;\nosc.HSEPredivValue = RCC_HSE_PREDIV_DIV1;\nosc.PLL.PLLState   = RCC_PLL_ON;\nosc.PLL.PLLSource  = RCC_PLLSOURCE_HSE;\nosc.PLL.PLLMUL     = RCC_PLL_MUL9;    // 8MHz × 9 = 72MHz\nif (HAL_RCC_OscConfig(&osc) != HAL_OK) { Error_Handler(); }"
+    },
+    {
+      "id": "HAL_RCC_ClockConfig",
+      "name": "HAL_RCC_ClockConfig",
+      "cat": "rcc",
+      "common": true,
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "HAL_StatusTypeDef HAL_RCC_ClockConfig(RCC_ClkInitTypeDef *RCC_ClkInitStruct, uint32_t FLatency)",
+      "brief": "设置 AHB/APB 分频、系统时钟源并配置 Flash 等待周期。",
+      "params": [
+        {
+          "n": "RCC_ClkInitStruct",
+          "t": "RCC_ClkInitTypeDef *",
+          "d": "ClockType、SYSCLKSource 与各总线分频"
+        },
+        {
+          "n": "FLatency",
+          "t": "uint32_t",
+          "d": "Flash 等待周期，如 FLASH_LATENCY_5"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "FLatency 必须与目标主频匹配，否则取指错误死机，具体值查数据手册的 wait states 表。",
+        "必须先 HAL_RCC_OscConfig 配置好 PLL，再把 SYSCLKSource 切到 PLL。"
+      ],
+      "example": "RCC_ClkInitTypeDef clk = {0};\nclk.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK\n              | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;\nclk.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;\nclk.AHBCLKDivider = RCC_SYSCLK_DIV1;\nclk.APB1CLKDivider = RCC_HCLK_DIV4;\nclk.APB2CLKDivider = RCC_HCLK_DIV2;\nHAL_RCC_ClockConfig(&clk, FLASH_LATENCY_5);\nSystemCoreClockUpdate();",
+      "keywords": [
+        "系统时钟",
+        "分频",
+        "flash 等待",
+        "sysclk"
+      ],
+      "related": [
+        "HAL_RCC_OscConfig",
+        "HAL_RCC_GetHCLKFreq",
+        "SystemCoreClockUpdate"
+      ],
+      "diff": {
+        "f1": "F1 的 FLASH_LATENCY 只能取 0/1/2（对应 24/48/72 MHz），且 PCLK1 最高 36 MHz。",
+        "f4": "F4 的 FLASH_LATENCY 取 0-5，必须与主频一一对应（如 168 MHz 用 FLASH_LATENCY_5）。"
+      },
+      "example_f1": "RCC_ClkInitTypeDef clk = {0};\nclk.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK\n              | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;\nclk.SYSCLKSource  = RCC_SYSCLKSOURCE_PLLCLK;\nclk.AHBCLKDivider = RCC_SYSCLK_DIV1;\nclk.APB1CLKDivider = RCC_HCLK_DIV2;   // 36MHz\nclk.APB2CLKDivider = RCC_HCLK_DIV1;\nHAL_RCC_ClockConfig(&clk, FLASH_LATENCY_2);"
+    },
+    {
+      "id": "HAL_RCC_GetSysClockFreq",
+      "name": "HAL_RCC_GetSysClockFreq",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "uint32_t HAL_RCC_GetSysClockFreq(void)",
+      "brief": "返回当前系统时钟（SYSCLK）频率，单位 Hz。",
+      "params": [],
+      "ret": "uint32_t SYSCLK 频率",
+      "notes": [
+        "仅反映寄存器配置计算出的值，与实测频率可能有偏差（尤其用 HSI 时）。"
+      ],
+      "example": "printf(\"SYSCLK = %lu Hz\\n\", HAL_RCC_GetSysClockFreq());",
+      "keywords": [
+        "频率",
+        "sysclk",
+        "时钟"
+      ],
+      "related": [
+        "HAL_RCC_GetHCLKFreq",
+        "HAL_RCC_GetPCLK1Freq"
+      ]
+    },
+    {
+      "id": "HAL_RCC_GetHCLKFreq",
+      "name": "HAL_RCC_GetHCLKFreq",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "uint32_t HAL_RCC_GetHCLKFreq(void)",
+      "brief": "返回 AHB 总线时钟（HCLK）频率，即 CPU 主频。",
+      "params": [],
+      "ret": "uint32_t HCLK 频率",
+      "notes": [
+        "常用于计算串口波特率、定时器周期等；结果与 SystemCoreClock 应一致。"
+      ],
+      "example": "uint32_t cpu_hz = HAL_RCC_GetHCLKFreq();",
+      "keywords": [
+        "hclk",
+        "主频",
+        "cpu"
+      ],
+      "related": [
+        "HAL_RCC_GetSysClockFreq",
+        "HAL_RCC_GetPCLK1Freq"
+      ]
+    },
+    {
+      "id": "HAL_RCC_GetPCLK1Freq",
+      "name": "HAL_RCC_GetPCLK1Freq",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "uint32_t HAL_RCC_GetPCLK1Freq(void)",
+      "brief": "返回 APB1 外设时钟频率（低速外设：USART2/3、I2C、TIM2-7 等）。",
+      "params": [],
+      "ret": "uint32_t PCLK1 频率",
+      "notes": [
+        "注意定时器时钟可能是 PCLK1 的 2 倍：当 APB1 分频 ≠ 1 时 TIMxCLK = 2 × PCLK1。"
+      ],
+      "example": "",
+      "keywords": [
+        "pclk1",
+        "apb1",
+        "外设时钟"
+      ],
+      "related": [
+        "HAL_RCC_GetPCLK2Freq"
+      ]
+    },
+    {
+      "id": "HAL_RCC_GetPCLK2Freq",
+      "name": "HAL_RCC_GetPCLK2Freq",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "uint32_t HAL_RCC_GetPCLK2Freq(void)",
+      "brief": "返回 APB2 外设时钟频率（高速外设：USART1、SPI1、ADC、GPIO 等）。",
+      "params": [],
+      "ret": "uint32_t PCLK2 频率",
+      "notes": [],
+      "example": "uint32_t pclk2 = HAL_RCC_GetPCLK2Freq();",
+      "keywords": [
+        "pclk2",
+        "apb2",
+        "外设时钟"
+      ],
+      "related": [
+        "HAL_RCC_GetPCLK1Freq"
+      ]
+    },
+    {
+      "id": "HAL_RCC_DeInit",
+      "name": "HAL_RCC_DeInit",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "HAL_StatusTypeDef HAL_RCC_DeInit(void)",
+      "brief": "把 RCC 寄存器恢复为复位默认值（HSI 作为系统时钟）。",
+      "params": [],
+      "ret": "HAL_OK",
+      "notes": [
+        "常用于 bootloader 跳转到应用前重置时钟配置。"
+      ],
+      "example": "",
+      "keywords": [
+        "rcc",
+        "复位",
+        "bootloader"
+      ],
+      "related": [
+        "HAL_RCC_OscConfig"
+      ]
+    },
+    {
+      "id": "__HAL_RCC_GPIOA_CLK_ENABLE",
+      "name": "__HAL_RCC_GPIOA_CLK_ENABLE",
+      "cat": "rcc",
+      "common": true,
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "#define __HAL_RCC_GPIOA_CLK_ENABLE()   /* 使能 GPIOA 时钟 */",
+      "brief": "宏：使能 GPIOA 端口时钟，使用任何 GPIO 前必须调用。",
+      "params": [],
+      "ret": "宏，无返回值",
+      "notes": [
+        "实际是置位 RCC->AHB1ENR 的对应位，并带读回确认。",
+        "端口 b/c/d... 对应 __HAL_RCC_GPIOB_CLK_ENABLE 等。",
+        "忘记使能时钟时，GPIO 配置与读写全部无效，是最常见的坑。"
+      ],
+      "example": "__HAL_RCC_GPIOA_CLK_ENABLE();\n__HAL_RCC_GPIOB_CLK_ENABLE();",
+      "keywords": [
+        "时钟使能",
+        "gpio",
+        "宏",
+        "rcc"
+      ],
+      "related": [
+        "HAL_GPIO_Init"
+      ]
+    },
+    {
+      "id": "__HAL_RCC_USART1_CLK_ENABLE",
+      "name": "__HAL_RCC_USART1_CLK_ENABLE",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "#define __HAL_RCC_USART1_CLK_ENABLE()   /* 使能 USART1 时钟 */",
+      "brief": "宏：使能 USART1 的外设时钟（挂在 APB2）。",
+      "params": [],
+      "ret": "宏，无返回值",
+      "notes": [
+        "USART2/3 等在 APB1，对应 __HAL_RCC_USART2_CLK_ENABLE 等。"
+      ],
+      "example": "__HAL_RCC_USART1_CLK_ENABLE();",
+      "keywords": [
+        "串口",
+        "时钟",
+        "宏"
+      ],
+      "related": [
+        "HAL_UART_Init"
+      ]
+    },
+    {
+      "id": "__HAL_RCC_DMA1_CLK_ENABLE",
+      "name": "__HAL_RCC_DMA1_CLK_ENABLE",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "#define __HAL_RCC_DMA1_CLK_ENABLE()   /* 使能 DMA1 时钟 */",
+      "brief": "宏：使能 DMA1 控制器时钟（AHB1）。",
+      "params": [],
+      "ret": "宏，无返回值",
+      "notes": [
+        "使用 DMA 前必须使能；DMA2 对应 __HAL_RCC_DMA2_CLK_ENABLE。"
+      ],
+      "example": "__HAL_RCC_DMA1_CLK_ENABLE();",
+      "keywords": [
+        "dma",
+        "时钟使能"
+      ],
+      "related": [
+        "HAL_DMA_Init"
+      ]
+    },
+    {
+      "id": "__HAL_RCC_TIM2_CLK_ENABLE",
+      "name": "__HAL_RCC_TIM2_CLK_ENABLE",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc.h",
+      "sig": "#define __HAL_RCC_TIM2_CLK_ENABLE()   /* 使能 TIM2 时钟 */",
+      "brief": "宏：使能 TIM2 定时器时钟（APB1）。",
+      "params": [],
+      "ret": "宏，无返回值",
+      "notes": [
+        "其他定时器同理，如 __HAL_RCC_TIM3_CLK_ENABLE。"
+      ],
+      "example": "",
+      "keywords": [
+        "定时器",
+        "时钟使能",
+        "tim"
+      ],
+      "related": [
+        "HAL_TIM_Base_Init"
+      ]
+    },
+    {
+      "id": "HAL_RCCEx_PeriphCLKConfig",
+      "name": "HAL_RCCEx_PeriphCLKConfig",
+      "cat": "rcc",
+      "header": "stm32xx_hal_rcc_ex.h",
+      "sig": "HAL_StatusTypeDef HAL_RCCEx_PeriphCLKConfig(RCC_PeriphCLKInitTypeDef *PeriphClkInit)",
+      "brief": "配置外设专用时钟源，例如 ADC、USB、I2S、UART 的独立时钟选择。",
+      "params": [
+        {
+          "n": "PeriphClkInit",
+          "t": "RCC_PeriphCLKInitTypeDef *",
+          "d": "PeriphClockSelection 选择外设，其余字段指定时钟源与分频"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "L4/G4/H7 等系列外设时钟树更复杂，CubeMX 会自动生成这段代码。"
+      ],
+      "example": "RCC_PeriphCLKInitTypeDef pc = {0};\npc.PeriphClockSelection = RCC_PERIPHCLK_ADC;\npc.AdcClockSelection = RCC_ADCPCLK2_DIV6;   // ADC 时钟 = PCLK2 / 6\nHAL_RCCEx_PeriphCLKConfig(&pc);",
+      "keywords": [
+        "外设时钟",
+        "adc时钟",
+        "时钟源"
+      ],
+      "related": [
+        "HAL_RCC_OscConfig"
+      ],
+      "diff": {
+        "f1": "F1 主要用它选择 RTC 时钟源（LSE/LSI）与 ADC 预分频 RCC_ADCPCLK2_DIVx。",
+        "f4": "F4 还可配置 I2S、SDIO、RTC、USB 等外设的独立时钟源。"
+      }
+    },
+    {
+      "id": "HAL_GPIO_Init",
+      "name": "HAL_GPIO_Init",
+      "cat": "gpio",
+      "common": true,
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "void HAL_GPIO_Init(GPIO_TypeDef *GPIOx, GPIO_InitTypeDef *GPIO_Init)",
+      "brief": "按指定模式初始化一个或多个 GPIO 引脚。",
+      "params": [
+        {
+          "n": "GPIOx",
+          "t": "GPIO_TypeDef *",
+          "d": "端口基址，如 GPIOA / GPIOB"
+        },
+        {
+          "n": "GPIO_Init",
+          "t": "GPIO_InitTypeDef *",
+          "d": "Pin 位掩码、Mode、Pull、Speed、Alternate 配置"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "调用前必须使能端口时钟，例如 __HAL_RCC_GPIOA_CLK_ENABLE()。",
+        "Pin 可用按位或一次配置多脚：GPIO_PIN_0 | GPIO_PIN_1。",
+        "复用功能需设置 Alternate 编号（查数据手册 AF 表），并选 GPIO_MODE_AF_PP。",
+        "输出默认电平需在初始化后单独调用 HAL_GPIO_WritePin 设定。"
+      ],
+      "example": "GPIO_InitTypeDef gi = {0};\ngi.Pin   = GPIO_PIN_5;\ngi.Mode  = GPIO_MODE_OUTPUT_PP;\ngi.Pull  = GPIO_NOPULL;\ngi.Speed = GPIO_SPEED_FREQ_LOW;\nHAL_GPIO_Init(GPIOA, &gi);\n\ngi.Pin  = GPIO_PIN_0;\ngi.Mode = GPIO_MODE_IT_RISING;     // 上升沿中断\ngi.Pull = GPIO_PULLDOWN;\nHAL_GPIO_Init(GPIOA, &gi);",
+      "keywords": [
+        "gpio",
+        "初始化",
+        "引脚",
+        "模式",
+        "复用"
+      ],
+      "related": [
+        "HAL_GPIO_DeInit",
+        "HAL_GPIO_WritePin",
+        "__HAL_RCC_GPIOA_CLK_ENABLE"
+      ],
+      "diff": {
+        "f1": "F1 的 GPIO_InitTypeDef 没有 Alternate 字段，复用功能靠 AFIO 重映射宏配置；输出速度只有 LOW / MEDIUM / HIGH 三档。",
+        "f4": "F4 用 GPIO_Init.Alternate 指定复用编号（如 GPIO_AF7_USART1），速度可选 VERY_HIGH。"
+      },
+      "example_f1": "GPIO_InitTypeDef gi = {0};\ngi.Pin   = GPIO_PIN_5;\ngi.Mode  = GPIO_MODE_OUTPUT_PP;\ngi.Pull  = GPIO_NOPULL;\ngi.Speed = GPIO_SPEED_FREQ_LOW;   // F1 只有 LOW/MEDIUM/HIGH\nHAL_GPIO_Init(GPIOA, &gi);        // 无 Alternate 字段"
+    },
+    {
+      "id": "HAL_GPIO_DeInit",
+      "name": "HAL_GPIO_DeInit",
+      "cat": "gpio",
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "void HAL_GPIO_DeInit(GPIO_TypeDef *GPIOx, uint32_t GPIO_Pin)",
+      "brief": "把指定引脚恢复为复位默认状态（模拟输入、浮空）。",
+      "params": [
+        {
+          "n": "GPIOx",
+          "t": "GPIO_TypeDef *",
+          "d": "端口基址"
+        },
+        {
+          "n": "GPIO_Pin",
+          "t": "uint32_t",
+          "d": "引脚位掩码"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "还会关闭该引脚的中断/事件线。"
+      ],
+      "example": "HAL_GPIO_DeInit(GPIOA, GPIO_PIN_5);",
+      "keywords": [
+        "反初始化",
+        "恢复"
+      ],
+      "related": [
+        "HAL_GPIO_Init"
+      ]
+    },
+    {
+      "id": "HAL_GPIO_WritePin",
+      "name": "HAL_GPIO_WritePin",
+      "cat": "gpio",
+      "common": true,
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "void HAL_GPIO_WritePin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin, GPIO_PinState PinState)",
+      "brief": "写单个引脚的输出电平（BSRR 寄存器实现，原子操作）。",
+      "params": [
+        {
+          "n": "GPIOx",
+          "t": "GPIO_TypeDef *",
+          "d": "端口基址"
+        },
+        {
+          "n": "GPIO_Pin",
+          "t": "uint16_t",
+          "d": "引脚位掩码，可或运算同时写多个"
+        },
+        {
+          "n": "PinState",
+          "t": "GPIO_PinState",
+          "d": "GPIO_PIN_SET（高）或 GPIO_PIN_RESET（低）"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "引脚需先配置为输出模式；内部用 BSRR 写，无需读改写，可在中断中安全使用。"
+      ],
+      "example": "HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);   // 点亮\nHAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET); // 熄灭",
+      "keywords": [
+        "输出",
+        "电平",
+        "write",
+        "bsrr"
+      ],
+      "related": [
+        "HAL_GPIO_TogglePin",
+        "HAL_GPIO_ReadPin"
+      ]
+    },
+    {
+      "id": "HAL_GPIO_ReadPin",
+      "name": "HAL_GPIO_ReadPin",
+      "cat": "gpio",
+      "common": true,
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "GPIO_PinState HAL_GPIO_ReadPin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin)",
+      "brief": "读取引脚当前电平。",
+      "params": [
+        {
+          "n": "GPIOx",
+          "t": "GPIO_TypeDef *",
+          "d": "端口基址"
+        },
+        {
+          "n": "GPIO_Pin",
+          "t": "uint16_t",
+          "d": "引脚位掩码"
+        }
+      ],
+      "ret": "GPIO_PIN_SET 高电平 / GPIO_PIN_RESET 低电平",
+      "notes": [
+        "读的是 IDR，输出模式下也可读回实际输出电平。"
+      ],
+      "example": "if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET) {\n  HAL_Delay(20);                       // 简单消抖\n  if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET) {\n    key_pressed = 1;\n  }\n}",
+      "keywords": [
+        "输入",
+        "读取",
+        "按键"
+      ],
+      "related": [
+        "HAL_GPIO_WritePin"
+      ]
+    },
+    {
+      "id": "HAL_GPIO_TogglePin",
+      "name": "HAL_GPIO_TogglePin",
+      "cat": "gpio",
+      "common": true,
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "void HAL_GPIO_TogglePin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin)",
+      "brief": "翻转引脚输出电平。",
+      "params": [
+        {
+          "n": "GPIOx",
+          "t": "GPIO_TypeDef *",
+          "d": "端口基址"
+        },
+        {
+          "n": "GPIO_Pin",
+          "t": "uint16_t",
+          "d": "引脚位掩码"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "实现方式是读 ODR 再写回，多任务环境下对同端口其他脚的并发写有极小概率冲突。",
+        "常用作 LED 心跳指示。"
+      ],
+      "example": "while (1) {\n  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);\n  HAL_Delay(500);\n}",
+      "keywords": [
+        "翻转",
+        "toggle",
+        "闪烁",
+        "led"
+      ],
+      "related": [
+        "HAL_GPIO_WritePin"
+      ]
+    },
+    {
+      "id": "HAL_GPIO_LockPin",
+      "name": "HAL_GPIO_LockPin",
+      "cat": "gpio",
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "HAL_StatusTypeDef HAL_GPIO_LockPin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin)",
+      "brief": "锁定引脚配置，直到下次复位前无法再修改。",
+      "params": [
+        {
+          "n": "GPIOx",
+          "t": "GPIO_TypeDef *",
+          "d": "端口基址"
+        },
+        {
+          "n": "GPIO_Pin",
+          "t": "uint16_t",
+          "d": "要锁定的引脚"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "锁定后写 LCKR 寄存器会失败；可用于安全相关输出（如继电器、使能信号）。"
+      ],
+      "example": "HAL_GPIO_LockPin(GPIOA, GPIO_PIN_5);",
+      "keywords": [
+        "锁定",
+        "安全",
+        "配置"
+      ],
+      "related": [
+        "HAL_GPIO_Init"
+      ]
+    },
+    {
+      "id": "HAL_GPIO_EXTI_IRQHandler",
+      "name": "HAL_GPIO_EXTI_IRQHandler",
+      "cat": "gpio",
+      "common": true,
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "void HAL_GPIO_EXTI_IRQHandler(uint16_t GPIO_Pin)",
+      "brief": "EXTI 中断统一处理函数：清标志并回调 HAL_GPIO_EXTI_Callback，需在 EXTIx_IRQHandler 中调用。",
+      "params": [
+        {
+          "n": "GPIO_Pin",
+          "t": "uint16_t",
+          "d": "触发中断的引脚位掩码（由用户传入）"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "只处理传入的引脚位，若同一 EXTI 线映射多个脚需自行判断。",
+        "CubeMX 会在 stm32xx_it.c 生成 EXTIx_IRQHandler 并调用本函数。"
+      ],
+      "example": "void EXTI0_IRQHandler(void)\n{\n  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);\n}\n\nvoid HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)\n{\n  if (GPIO_Pin == GPIO_PIN_0) { /* 处理按键 */ }\n}",
+      "keywords": [
+        "外部中断",
+        "exti",
+        "中断服务"
+      ],
+      "related": [
+        "HAL_GPIO_EXTI_Callback",
+        "__HAL_GPIO_EXTI_CLEAR_IT"
+      ]
+    },
+    {
+      "id": "HAL_GPIO_EXTI_Callback",
+      "name": "HAL_GPIO_EXTI_Callback",
+      "cat": "gpio",
+      "common": true,
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)   /* __weak */",
+      "brief": "EXTI 中断回调，用户重写后处理具体引脚事件。",
+      "params": [
+        {
+          "n": "GPIO_Pin",
+          "t": "uint16_t",
+          "d": "触发事件的引脚位掩码"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "运行在中断上下文，避免 HAL_Delay、printf 等阻塞操作。",
+        "建议只置标志位，把耗时处理放到主循环。"
+      ],
+      "example": "void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)\n{\n  if (GPIO_Pin == KEY_Pin) {\n    key_event = 1;          // 只置标志，主循环处理\n  }\n}",
+      "keywords": [
+        "回调",
+        "中断",
+        "exti"
+      ],
+      "related": [
+        "HAL_GPIO_EXTI_IRQHandler"
+      ]
+    },
+    {
+      "id": "__HAL_GPIO_EXTI_CLEAR_IT",
+      "name": "__HAL_GPIO_EXTI_CLEAR_IT",
+      "cat": "gpio",
+      "header": "stm32xx_hal_gpio.h",
+      "sig": "#define __HAL_GPIO_EXTI_CLEAR_IT(__EXTI_LINE__)",
+      "brief": "宏：清除 EXTI 挂起标志位。",
+      "params": [
+        {
+          "n": "__EXTI_LINE__",
+          "t": "宏参数",
+          "d": "EXTI 线掩码，如 GPIO_PIN_0"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [
+        "HAL_GPIO_EXTI_IRQHandler 已自动调用；自定义中断处理时需手动清除，否则中断会反复进入。"
+      ],
+      "example": "__HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_0);",
+      "keywords": [
+        "清标志",
+        "exti",
+        "宏"
+      ],
+      "related": [
+        "HAL_GPIO_EXTI_IRQHandler"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_SetPriority",
+      "name": "HAL_NVIC_SetPriority",
+      "cat": "irq",
+      "common": true,
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "void HAL_NVIC_SetPriority(IRQn_Type IRQn, uint32_t PreemptPriority, uint32_t SubPriority)",
+      "brief": "设置指定中断的抢占优先级与子优先级（实际写入 NVIC IPR）。",
+      "params": [
+        {
+          "n": "IRQn",
+          "t": "IRQn_Type",
+          "d": "中断号，如 USART1_IRQn"
+        },
+        {
+          "n": "PreemptPriority",
+          "t": "uint32_t",
+          "d": "抢占优先级，数值越小优先级越高"
+        },
+        {
+          "n": "SubPriority",
+          "t": "uint32_t",
+          "d": "子优先级，同抢占级别时决定先后"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "可用范围由优先级分组决定，分组越细子优先级可用位数越少。",
+        "优先级数值必须在分组允许范围内，超出会被截断，导致意料外的抢占关系。",
+        "HAL 默认分组 NVIC_PRIORITYGROUP_4（4 位抢占，0 位子优先级）。"
+      ],
+      "example": "HAL_NVIC_SetPriority(USART1_IRQn, 5, 0);\nHAL_NVIC_EnableIRQ(USART1_IRQn);",
+      "keywords": [
+        "nvic",
+        "优先级",
+        "中断"
+      ],
+      "related": [
+        "HAL_NVIC_EnableIRQ",
+        "HAL_NVIC_SetPriorityGrouping"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_EnableIRQ",
+      "name": "HAL_NVIC_EnableIRQ",
+      "cat": "irq",
+      "common": true,
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "void HAL_NVIC_EnableIRQ(IRQn_Type IRQn)",
+      "brief": "在 NVIC 中使能指定中断。",
+      "params": [
+        {
+          "n": "IRQn",
+          "t": "IRQn_Type",
+          "d": "中断号，如 EXTI0_IRQn"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "只使能 NVIC 通道；外设内部的中断使能位（如 UART CR1.RXNEIE）还需单独打开。",
+        "负数的 IRQn 不会被使能（函数内有判断）。"
+      ],
+      "example": "HAL_NVIC_SetPriority(EXTI0_IRQn, 2, 0);\nHAL_NVIC_EnableIRQ(EXTI0_IRQn);",
+      "keywords": [
+        "中断使能",
+        "nvic"
+      ],
+      "related": [
+        "HAL_NVIC_DisableIRQ",
+        "HAL_NVIC_SetPriority"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_DisableIRQ",
+      "name": "HAL_NVIC_DisableIRQ",
+      "cat": "irq",
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "void HAL_NVIC_DisableIRQ(IRQn_Type IRQn)",
+      "brief": "关闭指定 NVIC 中断通道。",
+      "params": [
+        {
+          "n": "IRQn",
+          "t": "IRQn_Type",
+          "d": "中断号"
+        }
+      ],
+      "ret": "void",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "关闭中断",
+        "nvic"
+      ],
+      "related": [
+        "HAL_NVIC_EnableIRQ"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_SetPriorityGrouping",
+      "name": "HAL_NVIC_SetPriorityGrouping",
+      "cat": "irq",
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "void HAL_NVIC_SetPriorityGrouping(uint32_t PriorityGroup)",
+      "brief": "设置中断优先级分组，决定抢占位与子优先级的位数分配。",
+      "params": [
+        {
+          "n": "PriorityGroup",
+          "t": "uint32_t",
+          "d": "NVIC_PRIORITYGROUP_0 ~ 4"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "默认 GROUP_4：4 位全为抢占优先级，范围 0-15。",
+        "若改用 RTOS（如 FreeRTOS），通常保持 GROUP_4 以避免优先级映射问题。",
+        "整机只应设置一次，运行中修改会造成优先级关系混乱。"
+      ],
+      "example": "HAL_NVIC_SetPriorityGrouping(NVIC_PRIORITYGROUP_4);",
+      "keywords": [
+        "分组",
+        "优先级",
+        "nvic"
+      ],
+      "related": [
+        "HAL_NVIC_SetPriority"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_GetPriority",
+      "name": "HAL_NVIC_GetPriority",
+      "cat": "irq",
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "uint32_t HAL_NVIC_GetPriority(IRQn_Type IRQn)",
+      "brief": "读取指定中断当前的优先级原始值。",
+      "params": [
+        {
+          "n": "IRQn",
+          "t": "IRQn_Type",
+          "d": "中断号"
+        }
+      ],
+      "ret": "uint32_t NVIC IPR 寄存器中的优先级值",
+      "notes": [
+        "返回的是硬件编码值，不是 HAL_NVIC_SetPriority 传入的人类可读值。"
+      ],
+      "example": "",
+      "keywords": [
+        "读取优先级",
+        "nvic"
+      ],
+      "related": [
+        "HAL_NVIC_SetPriority"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_SystemReset",
+      "name": "HAL_NVIC_SystemReset",
+      "cat": "irq",
+      "common": true,
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "void HAL_NVIC_SystemReset(void)",
+      "brief": "触发软件系统复位（写 AIRCR.SYSRESETREQ）。",
+      "params": [],
+      "ret": "void",
+      "notes": [
+        "复位前建议关闭外设输出、保存关键状态；有的调试器会断开连接。"
+      ],
+      "example": "void reboot(void)\n{\n  __disable_irq();\n  HAL_NVIC_SystemReset();\n}",
+      "keywords": [
+        "复位",
+        "重启",
+        "reset"
+      ],
+      "related": [
+        "HAL_NVIC_ClearPendingIRQ"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_SetPendingIRQ",
+      "name": "HAL_NVIC_SetPendingIRQ",
+      "cat": "irq",
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "void HAL_NVIC_SetPendingIRQ(IRQn_Type IRQn)",
+      "brief": "软件置位中断挂起标志，用于触发一次中断（软件中断）。",
+      "params": [
+        {
+          "n": "IRQn",
+          "t": "IRQn_Type",
+          "d": "中断号"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "调试时用于验证中断服务函数是否正常挂载。"
+      ],
+      "example": "",
+      "keywords": [
+        "挂起",
+        "软件中断",
+        "nvic"
+      ],
+      "related": [
+        "HAL_NVIC_GetPendingIRQ",
+        "HAL_NVIC_ClearPendingIRQ"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_GetPendingIRQ",
+      "name": "HAL_NVIC_GetPendingIRQ",
+      "cat": "irq",
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "uint32_t HAL_NVIC_GetPendingIRQ(IRQn_Type IRQn)",
+      "brief": "查询中断是否处于挂起状态。",
+      "params": [
+        {
+          "n": "IRQn",
+          "t": "IRQn_Type",
+          "d": "中断号"
+        }
+      ],
+      "ret": "1 挂起 / 0 未挂起",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "挂起状态",
+        "nvic"
+      ],
+      "related": [
+        "HAL_NVIC_ClearPendingIRQ"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_ClearPendingIRQ",
+      "name": "HAL_NVIC_ClearPendingIRQ",
+      "cat": "irq",
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "void HAL_NVIC_ClearPendingIRQ(IRQn_Type IRQn)",
+      "brief": "清除中断挂起标志。",
+      "params": [
+        {
+          "n": "IRQn",
+          "t": "IRQn_Type",
+          "d": "中断号"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "进入中断后 NVIC 挂起位通常自动清除，此函数多用于初始化时清残留标志。"
+      ],
+      "example": "",
+      "keywords": [
+        "清挂起",
+        "nvic"
+      ],
+      "related": [
+        "HAL_NVIC_GetPendingIRQ"
+      ]
+    },
+    {
+      "id": "HAL_NVIC_GetActive",
+      "name": "HAL_NVIC_GetActive",
+      "cat": "irq",
+      "header": "stm32xx_hal_cortex.h",
+      "sig": "uint32_t HAL_NVIC_GetActive(IRQn_Type IRQn)",
+      "brief": "查询中断当前是否正在执行（Active 状态）。",
+      "params": [
+        {
+          "n": "IRQn",
+          "t": "IRQn_Type",
+          "d": "中断号"
+        }
+      ],
+      "ret": "1 活跃 / 0 非活跃",
+      "notes": [
+        "调试中断嵌套问题时很有用。"
+      ],
+      "example": "",
+      "keywords": [
+        "active",
+        "中断状态"
+      ],
+      "related": [
+        "HAL_NVIC_GetPendingIRQ"
+      ]
+    },
+    {
+      "id": "HAL_UART_Init",
+      "name": "HAL_UART_Init",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_Init(UART_HandleTypeDef *huart)",
+      "brief": "按 huart->Init 中的参数（波特率、数据位、校验、停止位、流控）初始化串口。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄，需先设置 Instance 与 Init 成员"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "调用前需要：使能串口与对应 GPIO 时钟、配置 TX/RX 为复用推挽、调用 HAL_UART_MspInit（CubeMX 自动生成）。",
+        "波特率会按实际 PCLK 重新计算，改主频后必须重新初始化。",
+        "初始化完成后才能收发；再次调用会先 DeInit 再初始化。"
+      ],
+      "example": "UART_HandleTypeDef huart1;\n\nhuart1.Instance          = USART1;\nhuart1.Init.BaudRate     = 115200;\nhuart1.Init.WordLength   = UART_WORDLENGTH_8B;\nhuart1.Init.StopBits     = UART_STOPBITS_1;\nhuart1.Init.Parity       = UART_PARITY_NONE;\nhuart1.Init.Mode         = UART_MODE_TX_RX;\nhuart1.Init.HwFlowCtl    = UART_HWCONTROL_NONE;\nhuart1.Init.OverSampling = UART_OVERSAMPLING_16;\nif (HAL_UART_Init(&huart1) != HAL_OK) { Error_Handler(); }",
+      "keywords": [
+        "串口",
+        "uart",
+        "初始化",
+        "波特率"
+      ],
+      "related": [
+        "HAL_UART_MspInit",
+        "HAL_UART_Transmit",
+        "HAL_UART_IRQHandler"
+      ]
+    },
+    {
+      "id": "HAL_UART_DeInit",
+      "name": "HAL_UART_DeInit",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_DeInit(UART_HandleTypeDef *huart)",
+      "brief": "关闭串口并复位寄存器，同时调用 HAL_UART_MspDeInit 释放底层资源。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [
+        "进入低功耗或切换串口复用前使用。"
+      ],
+      "example": "",
+      "keywords": [
+        "反初始化",
+        "关闭串口"
+      ],
+      "related": [
+        "HAL_UART_Init"
+      ]
+    },
+    {
+      "id": "HAL_UART_MspInit",
+      "name": "HAL_UART_MspInit",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "void HAL_UART_MspInit(UART_HandleTypeDef *huart)   /* __weak */",
+      "brief": "串口底层初始化回调，由 HAL_UART_Init 调用，负责 GPIO/时钟/DMA/NVIC。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄，用于判断是哪个实例"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "CubeMX 已生成此函数（在 stm32xx_hal_msp.c），一般只需确认 AF 与引脚号正确。"
+      ],
+      "example": "void HAL_UART_MspInit(UART_HandleTypeDef *huart)\n{\n  if (huart->Instance == USART1) {\n    __HAL_RCC_USART1_CLK_ENABLE();\n    __HAL_RCC_GPIOA_CLK_ENABLE();\n    GPIO_InitTypeDef gi = {0};\n    gi.Pin = GPIO_PIN_9 | GPIO_PIN_10;\n    gi.Mode = GPIO_MODE_AF_PP;\n    gi.Pull = GPIO_PULLUP;\n    gi.Speed = GPIO_SPEED_FREQ_VERY_HIGH;\n    gi.Alternate = GPIO_AF7_USART1;\n    HAL_GPIO_Init(GPIOA, &gi);\n  }\n}",
+      "keywords": [
+        "msp",
+        "引脚",
+        "回调",
+        "时钟"
+      ],
+      "related": [
+        "HAL_UART_Init",
+        "HAL_GPIO_Init"
+      ],
+      "diff": {
+        "f1": "F1 没有 GPIO 复用编号，不能设置 Alternate；USART1 默认 PA9/PA10，换脚要用 __HAL_AFIO_REMAP_USART1_ENABLE()。",
+        "f4": "F4 需要设置 gi.Alternate = GPIO_AF7_USART1 且 Mode 为 GPIO_MODE_AF_PP。"
+      },
+      "example_f1": "void HAL_UART_MspInit(UART_HandleTypeDef *huart)\n{\n  if (huart->Instance == USART1) {\n    __HAL_RCC_USART1_CLK_ENABLE();\n    __HAL_RCC_GPIOA_CLK_ENABLE();\n    GPIO_InitTypeDef gi = {0};\n    gi.Pin   = GPIO_PIN_9 | GPIO_PIN_10;\n    gi.Mode  = GPIO_MODE_AF_PP;\n    gi.Speed = GPIO_SPEED_FREQ_HIGH;\n    HAL_GPIO_Init(GPIOA, &gi);   // F1 无需 Alternate\n  }\n}"
+    },
+    {
+      "id": "HAL_UART_Transmit",
+      "name": "HAL_UART_Transmit",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *huart, const uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "阻塞式发送一段数据，直到发送完毕或超时。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "pData",
+          "t": "const uint8_t *",
+          "d": "待发送缓冲区指针"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数，最大 65535"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒数，可用 HAL_MAX_DELAY 无限等待"
+        }
+      ],
+      "ret": "HAL_OK / HAL_TIMEOUT / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "发送期间 CPU 忙等，长数据建议改用 DMA 版本。",
+        "若 Timeout 太小、波特率低，数据可能只发出一部分，返回 HAL_TIMEOUT。",
+        "不要在中断里调用，会破坏实时性。"
+      ],
+      "example": "char msg[] = \"Hello STM32\\r\\n\";\nHAL_UART_Transmit(&huart1, (uint8_t *)msg, sizeof(msg) - 1, 1000);",
+      "keywords": [
+        "发送",
+        "串口",
+        "阻塞",
+        "printf"
+      ],
+      "related": [
+        "HAL_UART_Transmit_IT",
+        "HAL_UART_Transmit_DMA"
+      ]
+    },
+    {
+      "id": "HAL_UART_Receive",
+      "name": "HAL_UART_Receive",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_Receive(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "阻塞式接收固定长度数据，收满 Size 字节或超时返回。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "期望接收字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_TIMEOUT / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "超时返回时已收到的数据仍在缓冲区，但函数不告知收到多少字节。",
+        "长度不定的协议帧推荐用 DMA + 空闲中断（HAL_UARTEx_ReceiveToIdle_DMA）。"
+      ],
+      "example": "uint8_t buf[8];\nif (HAL_UART_Receive(&huart1, buf, sizeof(buf), 1000) == HAL_OK) {\n  // 收到 8 字节\n}",
+      "keywords": [
+        "接收",
+        "串口",
+        "阻塞"
+      ],
+      "related": [
+        "HAL_UART_Receive_IT",
+        "HAL_UARTEx_ReceiveToIdle_DMA"
+      ]
+    },
+    {
+      "id": "HAL_UART_Transmit_IT",
+      "name": "HAL_UART_Transmit_IT",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_Transmit_IT(UART_HandleTypeDef *huart, const uint8_t *pData, uint16_t Size)",
+      "brief": "中断方式发送，立即返回，完成后调用 HAL_UART_TxCpltCallback。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "pData",
+          "t": "const uint8_t *",
+          "d": "发送缓冲区，函数返回后不能立刻修改，直到发送完成"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "缓冲区必须在传输完成前保持有效（不要用局部变量）。",
+        "需要使能 USARTx 全局中断（CubeMX 自动生成 HAL_UART_IRQHandler）。",
+        "同一串口上一次传输未完成时再次调用会返回 HAL_BUSY。"
+      ],
+      "example": "uint8_t tx[4] = {0x01, 0x02, 0x03, 0x04};\nHAL_UART_Transmit_IT(&huart1, tx, sizeof(tx));\n\nvoid HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)\n{\n  if (huart->Instance == USART1) { tx_done = 1; }\n}",
+      "keywords": [
+        "中断发送",
+        "it",
+        "异步"
+      ],
+      "related": [
+        "HAL_UART_Transmit",
+        "HAL_UART_TxCpltCallback",
+        "HAL_UART_IRQHandler"
+      ]
+    },
+    {
+      "id": "HAL_UART_Receive_IT",
+      "name": "HAL_UART_Receive_IT",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size)",
+      "brief": "中断方式接收，收满指定字节数后回调 HAL_UART_RxCpltCallback。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "期望字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "回调中若要继续接收，必须再次调用 HAL_UART_Receive_IT（一次只收一帧）。",
+        "单字节接收时可在回调里把数据塞进环形缓冲区，再重新启动接收，实现不定长收包。"
+      ],
+      "example": "uint8_t rx_byte;\nHAL_UART_Receive_IT(&huart1, &rx_byte, 1);\n\nvoid HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)\n{\n  if (huart->Instance == USART1) {\n    ringbuf_put(rx_byte);\n    HAL_UART_Receive_IT(&huart1, &rx_byte, 1);   // 重新武装\n  }\n}",
+      "keywords": [
+        "中断接收",
+        "it",
+        "异步",
+        "环形缓冲"
+      ],
+      "related": [
+        "HAL_UART_Receive",
+        "HAL_UART_RxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_UART_Transmit_DMA",
+      "name": "HAL_UART_Transmit_DMA",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_Transmit_DMA(UART_HandleTypeDef *huart, const uint8_t *pData, uint16_t Size)",
+      "brief": "DMA 方式发送，不占用 CPU，完成后回调 HAL_UART_TxCpltCallback。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "pData",
+          "t": "const uint8_t *",
+          "d": "发送缓冲区（DMA 传输期间不可修改）"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "CubeMX 需为 USARTx_TX 配置 DMA 通道并在 MspInit 中初始化。",
+        "发送完成指的是数据交给 DMA，回调里仍可能正在移位输出，切换到半双工总线（如 RS485）要注意延时。"
+      ],
+      "example": "HAL_UART_Transmit_DMA(&huart1, tx_buf, len);",
+      "keywords": [
+        "dma",
+        "发送",
+        "串口",
+        "零拷贝"
+      ],
+      "related": [
+        "HAL_UART_Transmit",
+        "HAL_DMA_Init"
+      ]
+    },
+    {
+      "id": "HAL_UART_Receive_DMA",
+      "name": "HAL_UART_Receive_DMA",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_Receive_DMA(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size)",
+      "brief": "DMA 方式接收固定长度数据，收满后回调 HAL_UART_RxCpltCallback。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "适合定长帧或配合循环模式做连续采样。",
+        "不定长帧用 HAL_UARTEx_ReceiveToIdle_DMA 更合适。"
+      ],
+      "example": "uint8_t rx_buf[64];\nHAL_UART_Receive_DMA(&huart1, rx_buf, sizeof(rx_buf));",
+      "keywords": [
+        "dma",
+        "接收",
+        "串口"
+      ],
+      "related": [
+        "HAL_UARTEx_ReceiveToIdle_DMA",
+        "HAL_UART_RxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_UART_IRQHandler",
+      "name": "HAL_UART_IRQHandler",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "void HAL_UART_IRQHandler(UART_HandleTypeDef *huart)",
+      "brief": "串口统一中断处理函数，处理收发完成、错误、空闲等事件并调用相应回调。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "必须在 USARTx_IRQHandler() 中调用（CubeMX 自动生成）。",
+        "只要用了 _IT / _DMA / 空闲中断，就要保证它被正确调用，否则状态机会卡死。"
+      ],
+      "example": "void USART1_IRQHandler(void)\n{\n  HAL_UART_IRQHandler(&huart1);\n}",
+      "keywords": [
+        "中断服务",
+        "irqhandler",
+        "串口"
+      ],
+      "related": [
+        "HAL_UART_RxCpltCallback",
+        "HAL_UART_ErrorCallback"
+      ]
+    },
+    {
+      "id": "HAL_UART_RxCpltCallback",
+      "name": "HAL_UART_RxCpltCallback",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart.h",
+      "sig": "void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)   /* __weak */",
+      "brief": "接收完成回调（中断/DMA 方式），用户重写后处理数据。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "触发回调的串口句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "中断上下文，处理要短；多个串口共用时须判断 huart->Instance。",
+        "回调内可再次启动接收实现连续收包。"
+      ],
+      "example": "void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)\n{\n  if (huart->Instance == USART1) {\n    parse_frame(rx_buf, RX_LEN);\n    HAL_UART_Receive_IT(&huart1, rx_buf, RX_LEN);\n  }\n}",
+      "keywords": [
+        "回调",
+        "接收完成",
+        "串口"
+      ],
+      "related": [
+        "HAL_UART_Receive_IT",
+        "HAL_UART_Receive_DMA"
+      ]
+    },
+    {
+      "id": "HAL_UART_TxCpltCallback",
+      "name": "HAL_UART_TxCpltCallback",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)   /* __weak */",
+      "brief": "发送完成回调（中断/DMA 方式）。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "用于链式发送下一包或切换 RS485 方向脚。"
+      ],
+      "example": "void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)\n{\n  if (huart->Instance == USART1) {\n    HAL_GPIO_WritePin(RS485_DE_GPIO_Port, RS485_DE_Pin, GPIO_PIN_RESET);\n  }\n}",
+      "keywords": [
+        "回调",
+        "发送完成"
+      ],
+      "related": [
+        "HAL_UART_Transmit_IT",
+        "HAL_UART_Transmit_DMA"
+      ]
+    },
+    {
+      "id": "HAL_UART_ErrorCallback",
+      "name": "HAL_UART_ErrorCallback",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)   /* __weak */",
+      "brief": "串口错误回调：溢出、帧错误、噪声、校验错误等。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "错误发生后 HAL 会中止当前传输，需要重新启动收发。",
+        "常见 ORE（溢出）：中断处理太慢或未及时读 DR。",
+        "可读取 huart->ErrorCode 判断类型。"
+      ],
+      "example": "void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)\n{\n  if (huart->ErrorCode & HAL_UART_ERROR_ORE) {\n    __HAL_UART_CLEAR_OREFLAG(huart);\n    HAL_UART_Receive_IT(&huart1, rx_buf, 1);   // 重新启动\n  }\n}",
+      "keywords": [
+        "错误",
+        "回调",
+        "溢出",
+        "ore"
+      ],
+      "related": [
+        "HAL_UART_IRQHandler"
+      ]
+    },
+    {
+      "id": "HAL_UART_Abort",
+      "name": "HAL_UART_Abort",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "HAL_StatusTypeDef HAL_UART_Abort(UART_HandleTypeDef *huart)",
+      "brief": "中止当前所有收发（阻塞式），复位串口状态机。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "超时卡死或协议异常时用于强制恢复；中止后可重新 Init 或再次启动传输。"
+      ],
+      "example": "HAL_UART_Abort(&huart1);",
+      "keywords": [
+        "中止",
+        "abort",
+        "恢复"
+      ],
+      "related": [
+        "HAL_UART_DeInit"
+      ]
+    },
+    {
+      "id": "HAL_UARTEx_ReceiveToIdle_DMA",
+      "name": "HAL_UARTEx_ReceiveToIdle_DMA",
+      "cat": "uart",
+      "common": true,
+      "header": "stm32xx_hal_uart_ex.h",
+      "sig": "HAL_StatusTypeDef HAL_UARTEx_ReceiveToIdle_DMA(UART_HandleTypeDef *huart, uint8_t *pData, uint16_t Size)",
+      "brief": "DMA 接收 + 空闲线检测，收满或总线空闲时触发 HAL_UARTEx_RxEventCallback，最适合不定长帧。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "缓冲区大小，需大于最长帧"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "回调参数 Size 是本次实际收到的字节数（空闲检测或满缓冲触发）。",
+        "回调里再次调用本函数才能继续接收。",
+        "空闲中断依赖 USART 的 IDLE 标志，需要 USARTx 全局中断已使能。"
+      ],
+      "example": "uint8_t rx_buf[128];\nHAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buf, sizeof(rx_buf));\n\nvoid HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)\n{\n  if (huart->Instance == USART1) {\n    handle_frame(rx_buf, Size);\n    HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_buf, sizeof(rx_buf));\n  }\n}",
+      "keywords": [
+        "空闲中断",
+        "不定长",
+        "dma",
+        "idle"
+      ],
+      "related": [
+        "HAL_UARTEx_RxEventCallback",
+        "HAL_UART_Receive_DMA"
+      ]
+    },
+    {
+      "id": "HAL_UARTEx_RxEventCallback",
+      "name": "HAL_UARTEx_RxEventCallback",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart_ex.h",
+      "sig": "void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)   /* __weak */",
+      "brief": "ReceiveToIdle 系列事件的回调，Size 为本次实际接收长度。",
+      "params": [
+        {
+          "n": "huart",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "本次收到的字节数"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "仅用于 HAL_UARTEx_ReceiveToIdle_DMA / _IT 等扩展接口。",
+        "普通 Receive_IT 完成时仍走 HAL_UART_RxCpltCallback。"
+      ],
+      "example": "",
+      "keywords": [
+        "回调",
+        "空闲事件",
+        "不定长"
+      ],
+      "related": [
+        "HAL_UARTEx_ReceiveToIdle_DMA"
+      ]
+    },
+    {
+      "id": "__HAL_UART_GET_FLAG",
+      "name": "__HAL_UART_GET_FLAG",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "#define __HAL_UART_GET_FLAG(__HANDLE__, __FLAG__)   /* 读取 SR 标志 */",
+      "brief": "宏：查询串口状态标志，如 UART_FLAG_RXNE、UART_FLAG_IDLE、UART_FLAG_TC。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "__FLAG__",
+          "t": "宏参数",
+          "d": "标志位，如 UART_FLAG_RXNE"
+        }
+      ],
+      "ret": "非 0 表示标志置位",
+      "notes": [],
+      "example": "while (!__HAL_UART_GET_FLAG(&huart1, UART_FLAG_RXNE));\nuint8_t c = (uint8_t)(huart1.Instance->DR & 0xFF);",
+      "keywords": [
+        "标志位",
+        "宏",
+        "rxne"
+      ],
+      "related": [
+        "__HAL_UART_CLEAR_FLAG",
+        "HAL_UART_IRQHandler"
+      ]
+    },
+    {
+      "id": "__HAL_UART_CLEAR_FLAG",
+      "name": "__HAL_UART_CLEAR_FLAG",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "#define __HAL_UART_CLEAR_FLAG(__HANDLE__, __FLAG__)   /* 清除 SR 标志 */",
+      "brief": "宏：清除指定的串口错误/状态标志。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "__FLAG__",
+          "t": "宏参数",
+          "d": "要清除的标志，如 UART_FLAG_ORE"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [
+        "有些标志需要“读 SR + 读 DR”序列才能清除，宏内部已处理。"
+      ],
+      "example": "__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_ORE);",
+      "keywords": [
+        "清标志",
+        "错误",
+        "宏"
+      ],
+      "related": [
+        "__HAL_UART_GET_FLAG"
+      ]
+    },
+    {
+      "id": "__HAL_UART_ENABLE_IT",
+      "name": "__HAL_UART_ENABLE_IT",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "#define __HAL_UART_ENABLE_IT(__HANDLE__, __IT__)   /* 使能串口中断源 */",
+      "brief": "宏：使能具体中断源（RXNE、TC、IDLE、错误中断等）。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "__IT__",
+          "t": "宏参数",
+          "d": "中断源，如 UART_IT_IDLE"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [
+        "HAL 的 _IT 接口会自动使能所需中断，手动操作多见于自定义中断方案。"
+      ],
+      "example": "__HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);",
+      "keywords": [
+        "中断使能",
+        "宏",
+        "idle"
+      ],
+      "related": [
+        "__HAL_UART_DISABLE_IT"
+      ]
+    },
+    {
+      "id": "__HAL_UART_DISABLE_IT",
+      "name": "__HAL_UART_DISABLE_IT",
+      "cat": "uart",
+      "header": "stm32xx_hal_uart.h",
+      "sig": "#define __HAL_UART_DISABLE_IT(__HANDLE__, __IT__)   /* 关闭串口中断源 */",
+      "brief": "宏：关闭指定串口中断源。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "UART_HandleTypeDef *",
+          "d": "串口句柄"
+        },
+        {
+          "n": "__IT__",
+          "t": "宏参数",
+          "d": "中断源，如 UART_IT_RXNE"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "关闭中断",
+        "宏"
+      ],
+      "related": [
+        "__HAL_UART_ENABLE_IT"
+      ]
+    },
+    {
+      "id": "HAL_SPI_Init",
+      "name": "HAL_SPI_Init",
+      "cat": "spi",
+      "common": true,
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_Init(SPI_HandleTypeDef *hspi)",
+      "brief": "按 hspi->Init 初始化 SPI：主/从模式、数据宽度、CPOL/CPHA、NSS、波特率分频。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄，设置 Instance 与 Init 成员"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "Mode = SPI_MODE_MASTER 主机；SPI_MODE_SLAVE 从机。",
+        "时钟极性/相位必须与从机设备手册一致（CPOL/CPHA），否则数据全错。",
+        "BaudRatePrescaler 只能取 2/4/8/.../256，实际速率 = PCLK / 分频。",
+        "NSS 软件模式下需用 GPIO 手动控制片选。"
+      ],
+      "example": "SPI_HandleTypeDef hspi1;\n\nhspi1.Instance               = SPI1;\nhspi1.Init.Mode              = SPI_MODE_MASTER;\nhspi1.Init.Direction         = SPI_DIRECTION_2LINES;\nhspi1.Init.DataSize          = SPI_DATASIZE_8BIT;\nhspi1.Init.CLKPolarity       = SPI_POLARITY_LOW;\nhspi1.Init.CLKPhase          = SPI_PHASE_1EDGE;\nhspi1.Init.NSS               = SPI_NSS_SOFT;\nhspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_8;\nhspi1.Init.FirstBit          = SPI_FIRSTBIT_MSB;\nhspi1.Init.TIMode            = SPI_TIMODE_DISABLE;\nhspi1.Init.CRCCalculation    = SPI_CRCCALCULATION_DISABLE;\nHAL_SPI_Init(&hspi1);",
+      "keywords": [
+        "spi",
+        "初始化",
+        "cpol",
+        "cpha",
+        "主从"
+      ],
+      "related": [
+        "HAL_SPI_Transmit",
+        "HAL_SPI_TransmitReceive",
+        "HAL_SPI_MspInit"
+      ]
+    },
+    {
+      "id": "HAL_SPI_DeInit",
+      "name": "HAL_SPI_DeInit",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_DeInit(SPI_HandleTypeDef *hspi)",
+      "brief": "关闭 SPI 并释放底层资源（MspDeInit）。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "反初始化",
+        "spi"
+      ],
+      "related": [
+        "HAL_SPI_Init"
+      ]
+    },
+    {
+      "id": "HAL_SPI_MspInit",
+      "name": "HAL_SPI_MspInit",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi)   /* __weak */",
+      "brief": "SPI 底层初始化回调：时钟、SCK/MISO/MOSI 复用引脚、DMA、NVIC。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "CubeMX 生成；手写工程必须实现，否则没有引脚与时钟。"
+      ],
+      "example": "void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi)\n{\n  if (hspi->Instance == SPI1) {\n    __HAL_RCC_SPI1_CLK_ENABLE();\n    __HAL_RCC_GPIOA_CLK_ENABLE();\n    GPIO_InitTypeDef gi = {0};\n    gi.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;\n    gi.Mode = GPIO_MODE_AF_PP;\n    gi.Pull = GPIO_NOPULL;\n    gi.Speed = GPIO_SPEED_FREQ_VERY_HIGH;\n    gi.Alternate = GPIO_AF5_SPI1;\n    HAL_GPIO_Init(GPIOA, &gi);\n  }\n}",
+      "keywords": [
+        "msp",
+        "复用",
+        "引脚"
+      ],
+      "related": [
+        "HAL_SPI_Init",
+        "HAL_GPIO_Init"
+      ],
+      "diff": {
+        "f1": "F1 无需 Alternate 字段，SPI1 默认 PA5/PA6/PA7，改脚需对应 AFIO 重映射宏。",
+        "f4": "F4 用 gi.Alternate = GPIO_AF5_SPI1 指定复用功能。"
+      },
+      "example_f1": "void HAL_SPI_MspInit(SPI_HandleTypeDef *hspi)\n{\n  if (hspi->Instance == SPI1) {\n    __HAL_RCC_SPI1_CLK_ENABLE();\n    __HAL_RCC_GPIOA_CLK_ENABLE();\n    GPIO_InitTypeDef gi = {0};\n    gi.Pin   = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;\n    gi.Mode  = GPIO_MODE_AF_PP;\n    gi.Speed = GPIO_SPEED_FREQ_HIGH;\n    HAL_GPIO_Init(GPIOA, &gi);\n  }\n}"
+    },
+    {
+      "id": "HAL_SPI_Transmit",
+      "name": "HAL_SPI_Transmit",
+      "cat": "spi",
+      "common": true,
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_Transmit(SPI_HandleTypeDef *hspi, const uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "阻塞式 SPI 发送（主机模式下会同时产生时钟）。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pData",
+          "t": "const uint8_t *",
+          "d": "发送数据"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_TIMEOUT / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "只发不收，MISO 上的数据被丢弃。",
+        "片选（NSS 软件模式）需在调用前后手动拉低/拉高，两次传输之间要留间隔。"
+      ],
+      "example": "HAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_RESET);\nHAL_SPI_Transmit(&hspi1, cmd, 2, 100);\nHAL_GPIO_WritePin(CS_GPIO_Port, CS_Pin, GPIO_PIN_SET);",
+      "keywords": [
+        "spi",
+        "发送",
+        "阻塞"
+      ],
+      "related": [
+        "HAL_SPI_TransmitReceive",
+        "HAL_SPI_Transmit_IT"
+      ]
+    },
+    {
+      "id": "HAL_SPI_Receive",
+      "name": "HAL_SPI_Receive",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_Receive(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "阻塞式 SPI 接收，主机模式下自动发送 dummy 字节产生时钟。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_TIMEOUT / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "全双工器件通常用 HAL_SPI_TransmitReceive 一次完成命令+读取，避免额外的 dummy 时钟。"
+      ],
+      "example": "HAL_SPI_Receive(&hspi1, buf, 4, 100);",
+      "keywords": [
+        "spi",
+        "接收"
+      ],
+      "related": [
+        "HAL_SPI_TransmitReceive"
+      ]
+    },
+    {
+      "id": "HAL_SPI_TransmitReceive",
+      "name": "HAL_SPI_TransmitReceive",
+      "cat": "spi",
+      "common": true,
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_TransmitReceive(SPI_HandleTypeDef *hspi, const uint8_t *pTxData, uint8_t *pRxData, uint16_t Size, uint32_t Timeout)",
+      "brief": "阻塞式全双工收发：发送 Size 字节同时接收 Size 字节。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pTxData",
+          "t": "const uint8_t *",
+          "d": "发送缓冲区"
+        },
+        {
+          "n": "pRxData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_TIMEOUT / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "读写长度必须一致：读 N 字节就要发 N 字节（可发 0xFF）。"
+      ],
+      "example": "uint8_t tx[3] = {0x9F, 0x00, 0x00};   // 读 JEDEC ID\nuint8_t rx[3];\nHAL_SPI_TransmitReceive(&hspi1, tx, rx, 3, 100);",
+      "keywords": [
+        "全双工",
+        "spi",
+        "收发"
+      ],
+      "related": [
+        "HAL_SPI_Transmit",
+        "HAL_SPI_Receive"
+      ]
+    },
+    {
+      "id": "HAL_SPI_Transmit_IT",
+      "name": "HAL_SPI_Transmit_IT",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_Transmit_IT(SPI_HandleTypeDef *hspi, const uint8_t *pData, uint16_t Size)",
+      "brief": "中断方式 SPI 发送，完成后回调 HAL_SPI_TxCpltCallback。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pData",
+          "t": "const uint8_t *",
+          "d": "发送缓冲区（回调前不可复用）"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "需要在 MspInit 中使能 SPI 全局中断。"
+      ],
+      "example": "HAL_SPI_Transmit_IT(&hspi1, tx, len);",
+      "keywords": [
+        "中断",
+        "spi",
+        "异步"
+      ],
+      "related": [
+        "HAL_SPI_TxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_SPI_Receive_IT",
+      "name": "HAL_SPI_Receive_IT",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_Receive_IT(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size)",
+      "brief": "中断方式 SPI 接收。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "中断",
+        "spi",
+        "接收"
+      ],
+      "related": [
+        "HAL_SPI_RxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_SPI_TransmitReceive_IT",
+      "name": "HAL_SPI_TransmitReceive_IT",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_TransmitReceive_IT(SPI_HandleTypeDef *hspi, const uint8_t *pTxData, uint8_t *pRxData, uint16_t Size)",
+      "brief": "中断方式全双工收发。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pTxData",
+          "t": "const uint8_t *",
+          "d": "发送缓冲区"
+        },
+        {
+          "n": "pRxData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "中断",
+        "全双工"
+      ],
+      "related": [
+        "HAL_SPI_TxRxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_SPI_Transmit_DMA",
+      "name": "HAL_SPI_Transmit_DMA",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_Transmit_DMA(SPI_HandleTypeDef *hspi, const uint8_t *pData, uint16_t Size)",
+      "brief": "DMA 方式 SPI 发送，适合大批量数据（如刷屏、写 Flash）。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pData",
+          "t": "const uint8_t *",
+          "d": "发送缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "需要 CubeMX 中为 SPIx_TX 配置 DMA。",
+        "DMA 完成后仍有最后几个 bit 在移位，拉高 CS 前建议等 TC 标志。"
+      ],
+      "example": "HAL_SPI_Transmit_DMA(&hspi1, frame, len);",
+      "keywords": [
+        "dma",
+        "spi",
+        "批量"
+      ],
+      "related": [
+        "HAL_SPI_TxCpltCallback",
+        "HAL_DMA_Init"
+      ]
+    },
+    {
+      "id": "HAL_SPI_Receive_DMA",
+      "name": "HAL_SPI_Receive_DMA",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_Receive_DMA(SPI_HandleTypeDef *hspi, uint8_t *pData, uint16_t Size)",
+      "brief": "DMA 方式 SPI 接收。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "dma",
+        "接收"
+      ],
+      "related": [
+        "HAL_SPI_RxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_SPI_TransmitReceive_DMA",
+      "name": "HAL_SPI_TransmitReceive_DMA",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_TransmitReceive_DMA(SPI_HandleTypeDef *hspi, const uint8_t *pTxData, uint8_t *pRxData, uint16_t Size)",
+      "brief": "DMA 方式全双工收发。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        },
+        {
+          "n": "pTxData",
+          "t": "const uint8_t *",
+          "d": "发送缓冲区"
+        },
+        {
+          "n": "pRxData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "需要同时配置 TX 与 RX 两个 DMA 通道。"
+      ],
+      "example": "",
+      "keywords": [
+        "dma",
+        "全双工"
+      ],
+      "related": [
+        "HAL_SPI_TxRxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_SPI_IRQHandler",
+      "name": "HAL_SPI_IRQHandler",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "void HAL_SPI_IRQHandler(SPI_HandleTypeDef *hspi)",
+      "brief": "SPI 中断统一处理，必须在 SPIx_IRQHandler 中调用。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [],
+      "example": "void SPI1_IRQHandler(void)\n{\n  HAL_SPI_IRQHandler(&hspi1);\n}",
+      "keywords": [
+        "中断服务",
+        "spi"
+      ],
+      "related": [
+        "HAL_SPI_TxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_SPI_TxCpltCallback",
+      "name": "HAL_SPI_TxCpltCallback",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "void HAL_SPI_TxCpltCallback(SPI_HandleTypeDef *hspi)   /* __weak */",
+      "brief": "SPI 发送完成回调（中断/DMA）。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "常用于发送完成后拉高片选。"
+      ],
+      "example": "",
+      "keywords": [
+        "回调",
+        "发送完成"
+      ],
+      "related": [
+        "HAL_SPI_Transmit_IT"
+      ]
+    },
+    {
+      "id": "HAL_SPI_RxCpltCallback",
+      "name": "HAL_SPI_RxCpltCallback",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi)   /* __weak */",
+      "brief": "SPI 接收完成回调（中断/DMA）。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "回调",
+        "接收完成"
+      ],
+      "related": [
+        "HAL_SPI_Receive_IT"
+      ]
+    },
+    {
+      "id": "HAL_SPI_TxRxCpltCallback",
+      "name": "HAL_SPI_TxRxCpltCallback",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef *hspi)   /* __weak */",
+      "brief": "SPI 全双工收发完成回调。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "回调",
+        "全双工"
+      ],
+      "related": [
+        "HAL_SPI_TransmitReceive_IT"
+      ]
+    },
+    {
+      "id": "HAL_SPI_ErrorCallback",
+      "name": "HAL_SPI_ErrorCallback",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "void HAL_SPI_ErrorCallback(SPI_HandleTypeDef *hspi)   /* __weak */",
+      "brief": "SPI 错误回调：模式错误、溢出、CRC 错误等。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "读取 hspi->ErrorCode 获得具体错误类型。",
+        "溢出（OVR）常因读取不及时，检查 DMA/中断配置。"
+      ],
+      "example": "",
+      "keywords": [
+        "错误",
+        "回调"
+      ],
+      "related": [
+        "HAL_SPI_IRQHandler"
+      ]
+    },
+    {
+      "id": "HAL_SPI_Abort",
+      "name": "HAL_SPI_Abort",
+      "cat": "spi",
+      "header": "stm32xx_hal_spi.h",
+      "sig": "HAL_StatusTypeDef HAL_SPI_Abort(SPI_HandleTypeDef *hspi)",
+      "brief": "中止当前 SPI 传输并复位状态。",
+      "params": [
+        {
+          "n": "hspi",
+          "t": "SPI_HandleTypeDef *",
+          "d": "SPI 句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "中止",
+        "abort"
+      ],
+      "related": [
+        "HAL_SPI_DeInit"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Init",
+      "name": "HAL_I2C_Init",
+      "cat": "i2c",
+      "common": true,
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Init(I2C_HandleTypeDef *hi2c)",
+      "brief": "按 hi2c->Init 初始化 I2C：时钟速度、地址模式、双地址、模拟/数字滤波。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄，设置 Instance 与 Init"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "ClockSpeed 是标准/快速模式目标频率（100k/400k），函数会根据 PCLK 计算分频。",
+        "引脚必须为开漏复用（GPIO_MODE_AF_OD）并外接上拉电阻，否则总线无法拉高。",
+        "OwnAddress1 仅在从机模式使用。"
+      ],
+      "example": "I2C_HandleTypeDef hi2c1;\n\nhi2c1.Instance             = I2C1;\nhi2c1.Init.ClockSpeed      = 400000;\nhi2c1.Init.DutyCycle       = I2C_DUTYCYCLE_2;\nhi2c1.Init.OwnAddress1     = 0;\nhi2c1.Init.AddressingMode  = I2C_ADDRESSINGMODE_7BIT;\nhi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;\nhi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;\nhi2c1.Init.NoStretchMode   = I2C_NOSTRETCH_DISABLE;\nHAL_I2C_Init(&hi2c1);",
+      "keywords": [
+        "i2c",
+        "初始化",
+        "时钟速度",
+        "上拉"
+      ],
+      "related": [
+        "HAL_I2C_Master_Transmit",
+        "HAL_I2C_Mem_Read",
+        "HAL_I2C_IsDeviceReady"
+      ]
+    },
+    {
+      "id": "HAL_I2C_DeInit",
+      "name": "HAL_I2C_DeInit",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_DeInit(I2C_HandleTypeDef *hi2c)",
+      "brief": "关闭 I2C 并调用 MspDeInit 释放资源。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "反初始化",
+        "i2c"
+      ],
+      "related": [
+        "HAL_I2C_Init"
+      ]
+    },
+    {
+      "id": "HAL_I2C_MspInit",
+      "name": "HAL_I2C_MspInit",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "void HAL_I2C_MspInit(I2C_HandleTypeDef *hi2c)   /* __weak */",
+      "brief": "I2C 底层初始化回调：时钟与 SCL/SDA 开漏复用配置。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "务必用 GPIO_MODE_AF_OD，并用 GPIO_PULLUP 或外部上拉。"
+      ],
+      "example": "void HAL_I2C_MspInit(I2C_HandleTypeDef *hi2c)\n{\n  if (hi2c->Instance == I2C1) {\n    __HAL_RCC_I2C1_CLK_ENABLE();\n    __HAL_RCC_GPIOB_CLK_ENABLE();\n    GPIO_InitTypeDef gi = {0};\n    gi.Pin = GPIO_PIN_6 | GPIO_PIN_7;\n    gi.Mode = GPIO_MODE_AF_OD;      // 开漏！\n    gi.Pull = GPIO_PULLUP;\n    gi.Speed = GPIO_SPEED_FREQ_VERY_HIGH;\n    gi.Alternate = GPIO_AF4_I2C1;\n    HAL_GPIO_Init(GPIOB, &gi);\n  }\n}",
+      "keywords": [
+        "msp",
+        "开漏",
+        "上拉",
+        "引脚"
+      ],
+      "related": [
+        "HAL_I2C_Init",
+        "HAL_GPIO_Init"
+      ],
+      "diff": {
+        "f1": "F1 无 Alternate 字段，I2C1 默认 PB6/PB7，换脚用 __HAL_AFIO_REMAP_I2C1_ENABLE()。",
+        "f4": "F4 用 gi.Alternate = GPIO_AF4_I2C1 指定复用功能。"
+      },
+      "example_f1": "void HAL_I2C_MspInit(I2C_HandleTypeDef *hi2c)\n{\n  if (hi2c->Instance == I2C1) {\n    __HAL_RCC_AFIO_CLK_ENABLE();\n    __HAL_RCC_I2C1_CLK_ENABLE();\n    __HAL_RCC_GPIOB_CLK_ENABLE();\n    GPIO_InitTypeDef gi = {0};\n    gi.Pin   = GPIO_PIN_6 | GPIO_PIN_7;\n    gi.Mode  = GPIO_MODE_AF_OD;\n    gi.Speed = GPIO_SPEED_FREQ_HIGH;\n    HAL_GPIO_Init(GPIOB, &gi);   // F1 无 Alternate\n  }\n}"
+    },
+    {
+      "id": "HAL_I2C_Master_Transmit",
+      "name": "HAL_I2C_Master_Transmit",
+      "cat": "i2c",
+      "common": true,
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Master_Transmit(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "主机阻塞式发送数据到从机（写操作）。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "7 位地址需左移 1 位，如 0x50 << 1"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "待写数据"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_TIMEOUT / HAL_BUSY",
+      "notes": [
+        "7 位地址必须左移 1 位（HAL 会在最低位自动加 R/W 位），写错地址是 I2C 调不通的第一大原因。",
+        "返回 HAL_ERROR 时先检查从机是否应答：可用 HAL_I2C_IsDeviceReady 探测。",
+        "总线被拉死（SDA 常低）时需要手动发 9 个时钟释放。"
+      ],
+      "example": "uint8_t cmd[2] = {0x01, 0xFF};\nHAL_I2C_Master_Transmit(&hi2c1, 0x50 << 1, cmd, 2, 100);",
+      "keywords": [
+        "i2c",
+        "发送",
+        "写",
+        "主机",
+        "阻塞"
+      ],
+      "related": [
+        "HAL_I2C_Master_Receive",
+        "HAL_I2C_Mem_Write",
+        "HAL_I2C_IsDeviceReady"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Master_Receive",
+      "name": "HAL_I2C_Master_Receive",
+      "cat": "i2c",
+      "common": true,
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Master_Receive(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "主机阻塞式从从机读取数据。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "7 位地址左移 1 位"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "读取字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_TIMEOUT / HAL_BUSY",
+      "notes": [
+        "读寄存器要先用 Mem_Read，或先发寄存器地址再读（组合传输）。"
+      ],
+      "example": "uint8_t id;\nHAL_I2C_Master_Receive(&hi2c1, 0x50 << 1, &id, 1, 100);",
+      "keywords": [
+        "i2c",
+        "读取",
+        "主机"
+      ],
+      "related": [
+        "HAL_I2C_Mem_Read",
+        "HAL_I2C_Master_Transmit"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Mem_Write",
+      "name": "HAL_I2C_Mem_Write",
+      "cat": "i2c",
+      "common": true,
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Mem_Write(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint16_t MemAddress, uint16_t MemAddSize, uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "向从机的指定寄存器/存储地址写数据，最常用的 EEPROM/传感器写入接口。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "从机 7 位地址左移 1 位"
+        },
+        {
+          "n": "MemAddress",
+          "t": "uint16_t",
+          "d": "目标寄存器地址，如 EEPROM 的 0x0000"
+        },
+        {
+          "n": "MemAddSize",
+          "t": "uint16_t",
+          "d": "寄存器地址宽度：I2C_MEMADD_SIZE_8BIT 或 _16BIT"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "待写数据"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_TIMEOUT / HAL_BUSY",
+      "notes": [
+        "MemAddSize 必须与器件手册的寄存器地址宽度一致，否则会错位写入。",
+        "EEPROM 每页写入有页边界限制，跨页需分包并等待写周期（约 5 ms）。"
+      ],
+      "example": "uint8_t val[2] = {0x12, 0x34};\nHAL_I2C_Mem_Write(&hi2c1, 0xA0, 0x0010,\n                   I2C_MEMADD_SIZE_16BIT, val, 2, 100);",
+      "keywords": [
+        "i2c",
+        "寄存器",
+        "eeprom",
+        "写"
+      ],
+      "related": [
+        "HAL_I2C_Mem_Read",
+        "HAL_I2C_Master_Transmit"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Mem_Read",
+      "name": "HAL_I2C_Mem_Read",
+      "cat": "i2c",
+      "common": true,
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Mem_Read(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint16_t MemAddress, uint16_t MemAddSize, uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "从从机指定寄存器/地址读取数据，内部完成“写地址 + 重启 + 读”组合传输。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "从机 7 位地址左移 1 位"
+        },
+        {
+          "n": "MemAddress",
+          "t": "uint16_t",
+          "d": "寄存器地址"
+        },
+        {
+          "n": "MemAddSize",
+          "t": "uint16_t",
+          "d": "I2C_MEMADD_SIZE_8BIT / _16BIT"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "读取字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_TIMEOUT / HAL_BUSY",
+      "notes": [
+        "读传感器数据（如 MPU6050、BMP280）基本都用这个函数。",
+        "多字节寄存器通常自动递增地址，连续读取即可。",
+        "遇到 HAL_BUSY 可先调用 HAL_I2C_IsDeviceReady 或复位总线。"
+      ],
+      "example": "uint8_t who_am_i;\nHAL_I2C_Mem_Read(&hi2c1, 0xD0, 0x75,\n                 I2C_MEMADD_SIZE_8BIT, &who_am_i, 1, 100);\n// who_am_i 应为 0x68（MPU6050）",
+      "keywords": [
+        "i2c",
+        "读寄存器",
+        "传感器",
+        "mpu6050"
+      ],
+      "related": [
+        "HAL_I2C_Mem_Write",
+        "HAL_I2C_IsDeviceReady"
+      ]
+    },
+    {
+      "id": "HAL_I2C_IsDeviceReady",
+      "name": "HAL_I2C_IsDeviceReady",
+      "cat": "i2c",
+      "common": true,
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_IsDeviceReady(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint32_t Trials, uint32_t Timeout)",
+      "brief": "探测从机是否应答，常用于上电检测与总线恢复。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "从机 7 位地址左移 1 位"
+        },
+        {
+          "n": "Trials",
+          "t": "uint32_t",
+          "d": "尝试次数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "每次尝试的超时"
+        }
+      ],
+      "ret": "HAL_OK 器件就绪 / HAL_BUSY 忙 / HAL_TIMEOUT 无应答",
+      "notes": [
+        "上电后器件可能需要几十毫秒启动，探测失败可延时重试。"
+      ],
+      "example": "if (HAL_I2C_IsDeviceReady(&hi2c1, 0xD0, 3, 100) != HAL_OK) {\n  Error_Handler();      // 器件未接好或地址错误\n}",
+      "keywords": [
+        "探测",
+        "应答",
+        "地址扫描"
+      ],
+      "related": [
+        "HAL_I2C_Master_Transmit"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Master_Transmit_IT",
+      "name": "HAL_I2C_Master_Transmit_IT",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Master_Transmit_IT(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData, uint16_t Size)",
+      "brief": "中断方式主机发送，完成后回调 HAL_I2C_MasterTxCpltCallback。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "从机地址左移 1 位"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "发送缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "中断",
+        "i2c",
+        "异步"
+      ],
+      "related": [
+        "HAL_I2C_MasterTxCpltCallback",
+        "HAL_I2C_Master_Transmit"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Master_Receive_IT",
+      "name": "HAL_I2C_Master_Receive_IT",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Master_Receive_IT(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData, uint16_t Size)",
+      "brief": "中断方式主机接收，完成后回调 HAL_I2C_MasterRxCpltCallback。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "从机地址左移 1 位"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "中断",
+        "接收"
+      ],
+      "related": [
+        "HAL_I2C_MasterRxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Master_Transmit_DMA",
+      "name": "HAL_I2C_Master_Transmit_DMA",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Master_Transmit_DMA(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData, uint16_t Size)",
+      "brief": "DMA 方式主机发送。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "从机地址左移 1 位"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "发送缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [
+        "I2C 速率低，DMA 收益不如 SPI/UART 明显，但可节省 CPU。"
+      ],
+      "example": "",
+      "keywords": [
+        "dma",
+        "i2c",
+        "发送"
+      ],
+      "related": [
+        "HAL_I2C_MasterTxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Master_Receive_DMA",
+      "name": "HAL_I2C_Master_Receive_DMA",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Master_Receive_DMA(I2C_HandleTypeDef *hi2c, uint16_t DevAddress, uint8_t *pData, uint16_t Size)",
+      "brief": "DMA 方式主机接收。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "DevAddress",
+          "t": "uint16_t",
+          "d": "从机地址左移 1 位"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_BUSY / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "dma",
+        "接收",
+        "i2c"
+      ],
+      "related": [
+        "HAL_I2C_MasterRxCpltCallback"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Slave_Transmit",
+      "name": "HAL_I2C_Slave_Transmit",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Slave_Transmit(I2C_HandleTypeDef *hi2c, uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "从机模式阻塞发送：等待主机寻址后发送数据。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄（已配置 OwnAddress1）"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "发送数据"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_TIMEOUT / HAL_BUSY",
+      "notes": [
+        "Unknown 情况下用中断/DMA 从机接口更灵活。"
+      ],
+      "example": "",
+      "keywords": [
+        "从机",
+        "发送",
+        "i2c"
+      ],
+      "related": [
+        "HAL_I2C_Slave_Receive"
+      ]
+    },
+    {
+      "id": "HAL_I2C_Slave_Receive",
+      "name": "HAL_I2C_Slave_Receive",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "HAL_StatusTypeDef HAL_I2C_Slave_Receive(I2C_HandleTypeDef *hi2c, uint8_t *pData, uint16_t Size, uint32_t Timeout)",
+      "brief": "从机模式阻塞接收主机发来的数据。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint8_t *",
+          "d": "接收缓冲区"
+        },
+        {
+          "n": "Size",
+          "t": "uint16_t",
+          "d": "字节数"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_TIMEOUT / HAL_BUSY",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "从机",
+        "接收"
+      ],
+      "related": [
+        "HAL_I2C_Slave_Transmit"
+      ]
+    },
+    {
+      "id": "HAL_I2C_IRQHandler",
+      "name": "HAL_I2C_IRQHandler",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "void HAL_I2C_IRQHandler(I2C_HandleTypeDef *hi2c)",
+      "brief": "I2C 中断统一处理，需在 I2Cx_EV_IRQHandler / ER_IRQHandler 中调用。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "F4 等系列把事件与错误分成两个中断向量，两者都要调用本函数。"
+      ],
+      "example": "void I2C1_EV_IRQHandler(void) { HAL_I2C_EV_IRQHandler(&hi2c1); }\nvoid I2C1_ER_IRQHandler(void) { HAL_I2C_ER_IRQHandler(&hi2c1); }",
+      "keywords": [
+        "中断服务",
+        "i2c"
+      ],
+      "related": [
+        "HAL_I2C_ErrorCallback"
+      ]
+    },
+    {
+      "id": "HAL_I2C_ErrorCallback",
+      "name": "HAL_I2C_ErrorCallback",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)   /* __weak */",
+      "brief": "I2C 错误回调：NACK、总线错误、仲裁丢失、超时等。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "hi2c->ErrorCode 可区分 AF（应答失败）/ BERR / ARLO 等。",
+        "AF 多半是地址写错、器件未上电或引脚接反。"
+      ],
+      "example": "void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)\n{\n  if (hi2c->ErrorCode & HAL_I2C_ERROR_AF) {\n    // 从机无应答\n  }\n}",
+      "keywords": [
+        "错误",
+        "回调",
+        "nack"
+      ],
+      "related": [
+        "HAL_I2C_Master_Transmit"
+      ]
+    },
+    {
+      "id": "HAL_I2C_MasterTxCpltCallback",
+      "name": "HAL_I2C_MasterTxCpltCallback",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef *hi2c)   /* __weak */",
+      "brief": "主机发送完成回调（中断/DMA）。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "回调",
+        "发送完成"
+      ],
+      "related": [
+        "HAL_I2C_Master_Transmit_IT"
+      ]
+    },
+    {
+      "id": "HAL_I2C_MasterRxCpltCallback",
+      "name": "HAL_I2C_MasterRxCpltCallback",
+      "cat": "i2c",
+      "header": "stm32xx_hal_i2c.h",
+      "sig": "void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef *hi2c)   /* __weak */",
+      "brief": "主机接收完成回调（中断/DMA）。",
+      "params": [
+        {
+          "n": "hi2c",
+          "t": "I2C_HandleTypeDef *",
+          "d": "I2C 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "回调",
+        "接收完成"
+      ],
+      "related": [
+        "HAL_I2C_Master_Receive_IT"
+      ]
+    },
+    {
+      "id": "HAL_TIM_Base_Init",
+      "name": "HAL_TIM_Base_Init",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_Base_Init(TIM_HandleTypeDef *htim)",
+      "brief": "初始化定时器时基：预分频、计数模式、周期(ARR)、时钟分频、重复计数。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄，先设 Instance 与 Init 成员"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "定时频率 = TIMxCLK / ((PSC+1) × (ARR+1))；注意 APB 分频≠1 时 TIMxCLK = 2×PCLK。",
+        "ARR 超过 65535 需要 32 位定时器（如 TIM2/TIM5），16 位定时器会截断。",
+        "初始化只配置，不启动计数；启动要调用 HAL_TIM_Base_Start。"
+      ],
+      "example": "TIM_HandleTypeDef htim2;\n\nhtim2.Instance               = TIM2;\nhtim2.Init.Prescaler         = 84 - 1;        // 84MHz/84 = 1MHz\nhtim2.Init.CounterMode       = TIM_COUNTERMODE_UP;\nhtim2.Init.Period            = 1000 - 1;      // 1MHz/1000 = 1kHz → 1ms\nhtim2.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;\nhtim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;\nHAL_TIM_Base_Init(&htim2);\nHAL_TIM_Base_Start_IT(&htim2);",
+      "keywords": [
+        "定时器",
+        "初始化",
+        "psc",
+        "arr"
+      ],
+      "related": [
+        "HAL_TIM_Base_Start",
+        "HAL_TIM_Base_Start_IT",
+        "HAL_TIM_PeriodElapsedCallback"
+      ]
+    },
+    {
+      "id": "HAL_TIM_Base_DeInit",
+      "name": "HAL_TIM_Base_DeInit",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_Base_DeInit(TIM_HandleTypeDef *htim)",
+      "brief": "停止并复位定时器，释放底层资源。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "反初始化",
+        "定时器"
+      ],
+      "related": [
+        "HAL_TIM_Base_Init"
+      ]
+    },
+    {
+      "id": "HAL_TIM_Base_Start",
+      "name": "HAL_TIM_Base_Start",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_Base_Start(TIM_HandleTypeDef *htim)",
+      "brief": "启动定时器计数，不产生中断。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "只置 CEN 位；查询溢出请轮询 __HAL_TIM_GET_FLAG(&htim, TIM_FLAG_UPDATE)。"
+      ],
+      "example": "HAL_TIM_Base_Start(&htim2);",
+      "keywords": [
+        "启动",
+        "计数"
+      ],
+      "related": [
+        "HAL_TIM_Base_Stop",
+        "HAL_TIM_Base_Start_IT"
+      ]
+    },
+    {
+      "id": "HAL_TIM_Base_Stop",
+      "name": "HAL_TIM_Base_Stop",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_Base_Stop(TIM_HandleTypeDef *htim)",
+      "brief": "停止定时器计数。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "停止",
+        "定时器"
+      ],
+      "related": [
+        "HAL_TIM_Base_Start"
+      ]
+    },
+    {
+      "id": "HAL_TIM_Base_Start_IT",
+      "name": "HAL_TIM_Base_Start_IT",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_Base_Start_IT(TIM_HandleTypeDef *htim)",
+      "brief": "启动定时器并使能更新中断，每次溢出调用 HAL_TIM_PeriodElapsedCallback。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "需要 NVIC 中使能 TIMx_IRQn，并在 TIMx_IRQHandler 中调用 HAL_TIM_IRQHandler(&htim)。",
+        "首次启动会立即进入一次更新中断（UEV），做计数时可在启动前清标志。"
+      ],
+      "example": "HAL_TIM_Base_Start_IT(&htim2);\n\nvoid TIM2_IRQHandler(void)\n{\n  HAL_TIM_IRQHandler(&htim2);\n}\n\nvoid HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)\n{\n  if (htim->Instance == TIM2) {\n    ms_counter++;\n  }\n}",
+      "keywords": [
+        "定时中断",
+        "周期中断",
+        "启动"
+      ],
+      "related": [
+        "HAL_TIM_PeriodElapsedCallback",
+        "HAL_TIM_IRQHandler"
+      ]
+    },
+    {
+      "id": "HAL_TIM_Base_Stop_IT",
+      "name": "HAL_TIM_Base_Stop_IT",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_Base_Stop_IT(TIM_HandleTypeDef *htim)",
+      "brief": "停止定时器并关闭更新中断。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "停止",
+        "中断"
+      ],
+      "related": [
+        "HAL_TIM_Base_Start_IT"
+      ]
+    },
+    {
+      "id": "HAL_TIM_Base_Start_DMA",
+      "name": "HAL_TIM_Base_Start_DMA",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_Base_Start_DMA(TIM_HandleTypeDef *htim, uint32_t *pData, uint16_t Length)",
+      "brief": "以 DMA 方式更新 ARR（定时器 DMA burst），可用于软件生成任意波形。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint32_t *",
+          "d": "ARR 值数组"
+        },
+        {
+          "n": "Length",
+          "t": "uint16_t",
+          "d": "数组长度"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "需要配置 TIMx_UP 的 DMA 请求。",
+        "常见用途：步进电机加减速、DAC 波形更新。"
+      ],
+      "example": "",
+      "keywords": [
+        "dma",
+        "定时器",
+        "波形"
+      ],
+      "related": [
+        "HAL_DMA_Start_IT"
+      ],
+      "diff": {
+        "f1": "F1 的定时器 DMA 请求需先使能 DIER 中对应位，且 DMA 通道到定时器的映射是固定的。",
+        "f4": "F4 通过 TIMx_UP 请求映射到指定 DMA Stream，可在 CubeMX 中直接选择。"
+      }
+    },
+    {
+      "id": "HAL_TIM_PWM_Init",
+      "name": "HAL_TIM_PWM_Init",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_PWM_Init(TIM_HandleTypeDef *htim)",
+      "brief": "初始化定时器为 PWM 模式（时基初始化 + 选择 PWM 计数模式）。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "之后还需 HAL_TIM_PWM_ConfigChannel 配置通道，再 HAL_TIM_PWM_Start 输出。"
+      ],
+      "example": "HAL_TIM_PWM_Init(&htim3);",
+      "keywords": [
+        "pwm",
+        "初始化",
+        "定时器"
+      ],
+      "related": [
+        "HAL_TIM_PWM_ConfigChannel",
+        "HAL_TIM_PWM_Start"
+      ]
+    },
+    {
+      "id": "HAL_TIM_PWM_ConfigChannel",
+      "name": "HAL_TIM_PWM_ConfigChannel",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_PWM_ConfigChannel(TIM_HandleTypeDef *htim, TIM_OC_InitTypeDef *sConfig, uint32_t Channel)",
+      "brief": "配置 PWM 通道的占空比、极性、空闲电平与输出比较模式。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        },
+        {
+          "n": "sConfig",
+          "t": "TIM_OC_InitTypeDef *",
+          "d": "OCMode / Pulse / OCPolarity / OCFastMode"
+        },
+        {
+          "n": "Channel",
+          "t": "uint32_t",
+          "d": "TIM_CHANNEL_1 ~ TIM_CHANNEL_4"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "Pulse 决定占空比：duty = Pulse / (ARR+1)。",
+        "输出引脚还需配置为对应 TIM 的复用推挽。",
+        "运行中改占空比用 __HAL_TIM_SET_COMPARE，不必重新配置。"
+      ],
+      "example": "TIM_OC_InitTypeDef oc = {0};\noc.OCMode     = TIM_OCMODE_PWM1;\noc.Pulse      = 500;              // ARR=1000 时占空比 50%\noc.OCPolarity = TIM_OCPOLARITY_HIGH;\noc.OCFastMode = TIM_OCFAST_DISABLE;\nHAL_TIM_PWM_ConfigChannel(&htim3, &oc, TIM_CHANNEL_1);",
+      "keywords": [
+        "pwm",
+        "通道",
+        "占空比",
+        "配置"
+      ],
+      "related": [
+        "HAL_TIM_PWM_Start",
+        "__HAL_TIM_SET_COMPARE"
+      ]
+    },
+    {
+      "id": "HAL_TIM_PWM_Start",
+      "name": "HAL_TIM_PWM_Start",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_PWM_Start(TIM_HandleTypeDef *htim, uint32_t Channel)",
+      "brief": "启动指定通道的 PWM 输出（使能 CCxE 并启动计数）。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        },
+        {
+          "n": "Channel",
+          "t": "uint32_t",
+          "d": "TIM_CHANNEL_1 ~ _4"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "启动后引脚立即输出波形，注意先确认占空比再启动，避免驱动异常。"
+      ],
+      "example": "HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);",
+      "keywords": [
+        "pwm",
+        "启动",
+        "输出"
+      ],
+      "related": [
+        "HAL_TIM_PWM_Stop",
+        "__HAL_TIM_SET_COMPARE"
+      ]
+    },
+    {
+      "id": "HAL_TIM_PWM_Stop",
+      "name": "HAL_TIM_PWM_Stop",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_PWM_Stop(TIM_HandleTypeDef *htim, uint32_t Channel)",
+      "brief": "停止指定通道 PWM 输出。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        },
+        {
+          "n": "Channel",
+          "t": "uint32_t",
+          "d": "通道号"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [
+        "停止后引脚电平由 GPIO 与极性决定，驱动 MOS 管时建议先降到 0 占空比。"
+      ],
+      "example": "",
+      "keywords": [
+        "pwm",
+        "停止"
+      ],
+      "related": [
+        "HAL_TIM_PWM_Start"
+      ]
+    },
+    {
+      "id": "HAL_TIM_PWM_Start_IT",
+      "name": "HAL_TIM_PWM_Start_IT",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_PWM_Start_IT(TIM_HandleTypeDef *htim, uint32_t Channel)",
+      "brief": "启动 PWM 并开启比较中断，每次周期结束回调 HAL_TIM_PWM_PulseFinishedCallback。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        },
+        {
+          "n": "Channel",
+          "t": "uint32_t",
+          "d": "通道号"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "适合需要逐周期更新占空比的场景（如呼吸灯用 DMA 更省 CPU）。"
+      ],
+      "example": "",
+      "keywords": [
+        "pwm",
+        "中断",
+        "逐周期"
+      ],
+      "related": [
+        "HAL_TIM_PWM_PulseFinishedCallback"
+      ]
+    },
+    {
+      "id": "HAL_TIM_OC_Init",
+      "name": "HAL_TIM_OC_Init",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_OC_Init(TIM_HandleTypeDef *htim)",
+      "brief": "初始化定时器为输出比较模式。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "输出比较用于在计数值等于 CCR 时翻转/置位引脚，可做单脉冲或精确时序。"
+      ],
+      "example": "",
+      "keywords": [
+        "输出比较",
+        "oc",
+        "定时器"
+      ],
+      "related": [
+        "HAL_TIM_OC_Start"
+      ]
+    },
+    {
+      "id": "HAL_TIM_OC_Start",
+      "name": "HAL_TIM_OC_Start",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_OC_Start(TIM_HandleTypeDef *htim, uint32_t Channel)",
+      "brief": "启动输出比较通道。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        },
+        {
+          "n": "Channel",
+          "t": "uint32_t",
+          "d": "通道号"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "输出比较",
+        "启动"
+      ],
+      "related": [
+        "HAL_TIM_OC_Init"
+      ]
+    },
+    {
+      "id": "HAL_TIM_IC_Init",
+      "name": "HAL_TIM_IC_Init",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_IC_Init(TIM_HandleTypeDef *htim)",
+      "brief": "初始化定时器为输入捕获模式，用于测频率、占空比、编码器。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "还需 HAL_TIM_IC_ConfigChannel 配置捕获边沿与分频，再 HAL_TIM_IC_Start_IT 启动。"
+      ],
+      "example": "",
+      "keywords": [
+        "输入捕获",
+        "ic",
+        "测频"
+      ],
+      "related": [
+        "HAL_TIM_IC_Start_IT",
+        "HAL_TIM_IC_CaptureCallback"
+      ]
+    },
+    {
+      "id": "HAL_TIM_IC_Start_IT",
+      "name": "HAL_TIM_IC_Start_IT",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_IC_Start_IT(TIM_HandleTypeDef *htim, uint32_t Channel)",
+      "brief": "启动输入捕获并开启捕获中断。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        },
+        {
+          "n": "Channel",
+          "t": "uint32_t",
+          "d": "捕获通道"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "输入捕获",
+        "中断"
+      ],
+      "related": [
+        "HAL_TIM_IC_CaptureCallback"
+      ]
+    },
+    {
+      "id": "HAL_TIM_IC_CaptureCallback",
+      "name": "HAL_TIM_IC_CaptureCallback",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)   /* __weak */",
+      "brief": "输入捕获回调，捕获到指定边沿时触发。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "在回调里用 HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_x) 取捕获值。",
+        "两次捕获值之差 × 计数周期 = 信号周期。"
+      ],
+      "example": "void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)\n{\n  if (htim->Instance == TIM2 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {\n    uint32_t cap = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);\n    uint32_t period_ticks = cap - last_cap;\n    last_cap = cap;\n    freq_hz = 1000000.0f / period_ticks;   // 1MHz 计数时\n  }\n}",
+      "keywords": [
+        "捕获",
+        "回调",
+        "测频"
+      ],
+      "related": [
+        "HAL_TIM_IC_Start_IT"
+      ]
+    },
+    {
+      "id": "HAL_TIM_PeriodElapsedCallback",
+      "name": "HAL_TIM_PeriodElapsedCallback",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)   /* __weak */",
+      "brief": "定时器更新（溢出）中断回调，最常用的软件定时入口。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "触发溢出的定时器句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "多个定时器共用，务必判断 htim->Instance。",
+        "中断里不要做耗时操作，仅置标志或递增计数。"
+      ],
+      "example": "void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)\n{\n  if (htim->Instance == TIM2) {\n    if (++tick_1ms >= 1000) { tick_1ms = 0; sec_flag = 1; }\n  }\n}",
+      "keywords": [
+        "回调",
+        "定时",
+        "溢出"
+      ],
+      "related": [
+        "HAL_TIM_Base_Start_IT"
+      ]
+    },
+    {
+      "id": "HAL_TIM_PWM_PulseFinishedCallback",
+      "name": "HAL_TIM_PWM_PulseFinishedCallback",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)   /* __weak */",
+      "brief": "PWM 脉冲完成回调（配合 _IT / _DMA 的 PWM 接口）。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "pwm",
+        "回调"
+      ],
+      "related": [
+        "HAL_TIM_PWM_Start_IT"
+      ]
+    },
+    {
+      "id": "__HAL_TIM_SET_COMPARE",
+      "name": "__HAL_TIM_SET_COMPARE",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "#define __HAL_TIM_SET_COMPARE(__HANDLE__, __CHANNEL__, __COMPARE__)",
+      "brief": "宏：设置捕获/比较寄存器 CCRx，即修改 PWM 占空比或比较值。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄指针"
+        },
+        {
+          "n": "__CHANNEL__",
+          "t": "宏参数",
+          "d": "TIM_CHANNEL_1 ~ _4"
+        },
+        {
+          "n": "__COMPARE__",
+          "t": "宏参数",
+          "d": "比较值，0 ~ ARR"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [
+        "运行中修改立即生效（下个周期装载），比重新 ConfigChannel 高效。",
+        "值大于 ARR 时输出恒为一种电平。"
+      ],
+      "example": "__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 900);   // 90% 占空比",
+      "keywords": [
+        "占空比",
+        "ccr",
+        "宏",
+        "pwm"
+      ],
+      "related": [
+        "HAL_TIM_PWM_Start",
+        "__HAL_TIM_SET_AUTORELOAD"
+      ]
+    },
+    {
+      "id": "__HAL_TIM_SET_AUTORELOAD",
+      "name": "__HAL_TIM_SET_AUTORELOAD",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "#define __HAL_TIM_SET_AUTORELOAD(__HANDLE__, __AUTORELOAD__)",
+      "brief": "宏：修改自动重装载值 ARR，用于动态改变周期/频率。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄指针"
+        },
+        {
+          "n": "__AUTORELOAD__",
+          "t": "宏参数",
+          "d": "新的 ARR 值"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [
+        "同时会更新 htim->Init.Period 字段。"
+      ],
+      "example": "__HAL_TIM_SET_AUTORELOAD(&htim3, 2000 - 1);",
+      "keywords": [
+        "arr",
+        "周期",
+        "宏"
+      ],
+      "related": [
+        "__HAL_TIM_SET_COMPARE",
+        "__HAL_TIM_SET_PRESCALER"
+      ]
+    },
+    {
+      "id": "__HAL_TIM_SET_COUNTER",
+      "name": "__HAL_TIM_SET_COUNTER",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "#define __HAL_TIM_SET_COUNTER(__HANDLE__, __COUNTER__)",
+      "brief": "宏：直接写计数器 CNT，可重置计数起点。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄指针"
+        },
+        {
+          "n": "__COUNTER__",
+          "t": "宏参数",
+          "d": "目标计数值"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [
+        "常用于清零计数实现“从此刻开始计时”。"
+      ],
+      "example": "__HAL_TIM_SET_COUNTER(&htim2, 0);",
+      "keywords": [
+        "cnt",
+        "计数",
+        "清零"
+      ],
+      "related": [
+        "__HAL_TIM_GET_COUNTER"
+      ]
+    },
+    {
+      "id": "__HAL_TIM_GET_COUNTER",
+      "name": "__HAL_TIM_GET_COUNTER",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "#define __HAL_TIM_GET_COUNTER(__HANDLE__)",
+      "brief": "宏：读取当前计数值 CNT。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄指针"
+        }
+      ],
+      "ret": "当前计数值（计数器位宽内）",
+      "notes": [
+        "可做微秒级计时：uint32_t t0 = __HAL_TIM_GET_COUNTER(&htim2);"
+      ],
+      "example": "uint32_t t0 = __HAL_TIM_GET_COUNTER(&htim2);\ndo_work();\nuint32_t us = __HAL_TIM_GET_COUNTER(&htim2) - t0;",
+      "keywords": [
+        "计数",
+        "计时",
+        "宏"
+      ],
+      "related": [
+        "__HAL_TIM_SET_COUNTER"
+      ]
+    },
+    {
+      "id": "__HAL_TIM_SET_PRESCALER",
+      "name": "__HAL_TIM_SET_PRESCALER",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "#define __HAL_TIM_SET_PRESCALER(__HANDLE__, __PRESC__)",
+      "brief": "宏：修改预分频值 PSC。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄指针"
+        },
+        {
+          "n": "__PRESC__",
+          "t": "宏参数",
+          "d": "新的预分频值（实际分频 = 值 + 1）"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [
+        "PSC 在下一个更新事件时生效。"
+      ],
+      "example": "__HAL_TIM_SET_PRESCALER(&htim3, 168 - 1);",
+      "keywords": [
+        "psc",
+        "分频",
+        "宏"
+      ],
+      "related": [
+        "__HAL_TIM_SET_AUTORELOAD"
+      ]
+    },
+    {
+      "id": "HAL_TIM_IRQHandler",
+      "name": "HAL_TIM_IRQHandler",
+      "cat": "tim",
+      "common": true,
+      "header": "stm32xx_hal_tim.h",
+      "sig": "void HAL_TIM_IRQHandler(TIM_HandleTypeDef *htim)",
+      "brief": "定时器统一中断处理：分发更新、捕获、比较、触发等事件到对应回调。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "必须在 TIMx_IRQHandler 中调用，否则周期/捕获回调不会执行。"
+      ],
+      "example": "void TIM2_IRQHandler(void)\n{\n  HAL_TIM_IRQHandler(&htim2);\n}",
+      "keywords": [
+        "中断服务",
+        "tim"
+      ],
+      "related": [
+        "HAL_TIM_PeriodElapsedCallback",
+        "HAL_TIM_IC_CaptureCallback"
+      ]
+    },
+    {
+      "id": "HAL_TIM_ConfigClockSource",
+      "name": "HAL_TIM_ConfigClockSource",
+      "cat": "tim",
+      "header": "stm32xx_hal_tim.h",
+      "sig": "HAL_StatusTypeDef HAL_TIM_ConfigClockSource(TIM_HandleTypeDef *htim, TIM_ClockConfigTypeDef *sClockSourceConfig)",
+      "brief": "选择定时器时钟源（内部时钟、外部 ETR、其他定时器触发等）。",
+      "params": [
+        {
+          "n": "htim",
+          "t": "TIM_HandleTypeDef *",
+          "d": "定时器句柄"
+        },
+        {
+          "n": "sClockSourceConfig",
+          "t": "TIM_ClockConfigTypeDef *",
+          "d": "ClockSource 与滤波/极性配置"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "默认内部时钟无需调用；外部计数/级联定时器时才需要。",
+        "外部时钟模式下 TIMxCLK 仍用于滤波采样。"
+      ],
+      "example": "TIM_ClockConfigTypeDef cs = {0};\ncs.ClockSource = TIM_CLOCKSOURCE_ETRMODE2;   // 外部 ETR 引脚计数\ncs.ClockPolarity = TIM_CLOCKPOLARITY_RISING;\ncs.ClockPrescaler = TIM_CLOCKPRESCALER_DIV1;\ncs.ClockFilter = 0;\nHAL_TIM_ConfigClockSource(&htim2, &cs);",
+      "keywords": [
+        "时钟源",
+        "外部计数",
+        "etr"
+      ],
+      "related": [
+        "HAL_TIM_Base_Init"
+      ]
+    },
+    {
+      "id": "HAL_ADC_Init",
+      "name": "HAL_ADC_Init",
+      "cat": "adc",
+      "common": true,
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_Init(ADC_HandleTypeDef *hadc)",
+      "brief": "初始化 ADC：分辨率、扫描/连续模式、触发源、数据对齐、时钟分频。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄，设置 Instance 与 Init"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "ClockPrescaler 决定 ADC 时钟，不得超过手册上限（如 F4 为 36 MHz）。",
+        "ScanConvMode = ENABLE 时多通道按 Rank 顺序转换。",
+        "若使用内部温度/参考电压通道需先使能对应通道（ADC_CHANNEL_TEMPSENSOR 等）。"
+      ],
+      "example": "ADC_HandleTypeDef hadc1;\n\nhadc1.Instance                   = ADC1;\nhadc1.Init.ClockPrescaler        = ADC_CLOCK_SYNC_PCLK_DIV4;\nhadc1.Init.Resolution            = ADC_RESOLUTION_12B;\nhadc1.Init.ScanConvMode          = DISABLE;\nhadc1.Init.ContinuousConvMode    = DISABLE;\nhadc1.Init.DiscontinuousConvMode = DISABLE;\nhadc1.Init.ExternalTrigConv      = ADC_SOFTWARE_START;\nhadc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;\nhadc1.Init.NbrOfConversion       = 1;\nhadc1.Init.DMAContinuousRequests = DISABLE;\nhadc1.Init.EOCSelection          = ADC_EOC_SINGLE_CONV;\nHAL_ADC_Init(&hadc1);",
+      "keywords": [
+        "adc",
+        "初始化",
+        "采样"
+      ],
+      "related": [
+        "HAL_ADC_Start",
+        "HAL_ADC_ConfigChannel",
+        "HAL_ADC_PollForConversion"
+      ],
+      "diff": {
+        "f1": "F1 的 ADC 固定 12 位，ADC_InitTypeDef 没有 Resolution / ClockPrescaler / DMAContinuousRequests / EOCSelection 字段；ADC 时钟在 RCC 中用 RCC_ADCPCLK2_DIVx 配置。",
+        "f4": "F4 可选 6/8/10/12 位分辨率，并用 ADC_CLOCK_SYNC_PCLK_DIVx 设置 ADC 时钟分频。"
+      },
+      "example_f1": "ADC_HandleTypeDef hadc1;\n\nhadc1.Instance                   = ADC1;\nhadc1.Init.ScanConvMode          = DISABLE;\nhadc1.Init.ContinuousConvMode    = DISABLE;\nhadc1.Init.DiscontinuousConvMode = DISABLE;\nhadc1.Init.ExternalTrigConv      = ADC_SOFTWARE_START;\nhadc1.Init.DataAlign             = ADC_DATAALIGN_RIGHT;\nhadc1.Init.NbrOfConversion       = 1;\nHAL_ADC_Init(&hadc1);   // F1 无 Resolution / ClockPrescaler"
+    },
+    {
+      "id": "HAL_ADC_DeInit",
+      "name": "HAL_ADC_DeInit",
+      "cat": "adc",
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_DeInit(ADC_HandleTypeDef *hadc)",
+      "brief": "关闭 ADC 并释放资源。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "反初始化",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_Init"
+      ]
+    },
+    {
+      "id": "HAL_ADC_Start",
+      "name": "HAL_ADC_Start",
+      "cat": "adc",
+      "common": true,
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_Start(ADC_HandleTypeDef *hadc)",
+      "brief": "启动 ADC 并开始转换（软件触发模式下立即开始一次转换）。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "单次模式转换结束后 ADC 停止，再次采样需重新调用 Start。",
+        "之后用 HAL_ADC_PollForConversion 等待完成。"
+      ],
+      "example": "HAL_ADC_Start(&hadc1);\nif (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {\n  uint32_t raw = HAL_ADC_GetValue(&hadc1);\n  float volt = raw * 3.3f / 4095.0f;\n}",
+      "keywords": [
+        "启动",
+        "采样",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_PollForConversion",
+        "HAL_ADC_GetValue"
+      ]
+    },
+    {
+      "id": "HAL_ADC_Stop",
+      "name": "HAL_ADC_Stop",
+      "cat": "adc",
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_Stop(ADC_HandleTypeDef *hadc)",
+      "brief": "停止 ADC 转换。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "停止",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_Start"
+      ]
+    },
+    {
+      "id": "HAL_ADC_PollForConversion",
+      "name": "HAL_ADC_PollForConversion",
+      "cat": "adc",
+      "common": true,
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_PollForConversion(ADC_HandleTypeDef *hadc, uint32_t Timeout)",
+      "brief": "阻塞等待一次转换完成（轮询 EOC 标志）。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK 转换完成 / HAL_TIMEOUT / HAL_ERROR",
+      "notes": [
+        "必须在 HAL_ADC_Start 之后调用。",
+        "超时常见原因：忘记启动、时钟未使能、通道配置错误。"
+      ],
+      "example": "if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK) {\n  uint16_t v = HAL_ADC_GetValue(&hadc1);\n}",
+      "keywords": [
+        "轮询",
+        "转换完成",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_GetValue",
+        "HAL_ADC_Start"
+      ]
+    },
+    {
+      "id": "HAL_ADC_GetValue",
+      "name": "HAL_ADC_GetValue",
+      "cat": "adc",
+      "common": true,
+      "header": "stm32xx_hal_adc.h",
+      "sig": "uint32_t HAL_ADC_GetValue(ADC_HandleTypeDef *hadc)",
+      "brief": "读取最近一次转换结果（DR 寄存器）。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "uint32_t 原始 AD 值（12 位：0-4095；16 位：0-65535）",
+      "notes": [
+        "按分辨率换算电压：V = raw × Vref / (2^n - 1)。",
+        "Vref 不稳定会导致测量漂移，可采样内部 VREFINT 校准。"
+      ],
+      "example": "float volts = HAL_ADC_GetValue(&hadc1) * 3.3f / 4095.0f;",
+      "keywords": [
+        "读取",
+        "ad值",
+        "电压",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_PollForConversion"
+      ]
+    },
+    {
+      "id": "HAL_ADC_Start_IT",
+      "name": "HAL_ADC_Start_IT",
+      "cat": "adc",
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_Start_IT(ADC_HandleTypeDef *hadc)",
+      "brief": "启动 ADC 并使能转换完成中断，完成后回调 HAL_ADC_ConvCpltCallback。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "需使能 ADCx_IRQn 并在中断中调用 HAL_ADC_IRQHandler(&hadc)。",
+        "连续模式下中断会按采样率持续触发，注意中断负载。"
+      ],
+      "example": "HAL_ADC_Start_IT(&hadc1);\n\nvoid ADC1_2_IRQHandler(void)\n{\n  HAL_ADC_IRQHandler(&hadc1);\n}\n\nvoid HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)\n{\n  val = HAL_ADC_GetValue(hadc);\n}",
+      "keywords": [
+        "中断",
+        "采样",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_ConvCpltCallback",
+        "HAL_ADC_IRQHandler"
+      ]
+    },
+    {
+      "id": "HAL_ADC_Stop_IT",
+      "name": "HAL_ADC_Stop_IT",
+      "cat": "adc",
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_Stop_IT(ADC_HandleTypeDef *hadc)",
+      "brief": "停止 ADC 并关闭转换完成中断。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "停止",
+        "中断"
+      ],
+      "related": [
+        "HAL_ADC_Start_IT"
+      ]
+    },
+    {
+      "id": "HAL_ADC_Start_DMA",
+      "name": "HAL_ADC_Start_DMA",
+      "cat": "adc",
+      "common": true,
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_Start_DMA(ADC_HandleTypeDef *hadc, uint32_t *pData, uint32_t Length)",
+      "brief": "启动 ADC 并用 DMA 把转换结果搬到内存，适合高速/多通道采样。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        },
+        {
+          "n": "pData",
+          "t": "uint32_t *",
+          "d": "目标缓冲区（元素类型 uint32_t）"
+        },
+        {
+          "n": "Length",
+          "t": "uint32_t",
+          "d": "传输次数（多通道扫描时为通道数 × 轮数）"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "需要在 MspInit 中配置 ADCx_DMA 通道，并把 DMAContinuousRequests 设为 ENABLE 才连续采样。",
+        "缓冲区类型必须是 uint32_t，用 uint16_t 会导致数据错位。",
+        "配合循环模式 DMA 可获得连续波形数据。"
+      ],
+      "example": "uint32_t adc_buf[2];\nHAL_ADC_Start_DMA(&hadc1, adc_buf, 2);   // 双通道各一次\n\nvoid HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)\n{\n  ch0 = adc_buf[0];\n  ch1 = adc_buf[1];\n}",
+      "keywords": [
+        "dma",
+        "采样",
+        "多通道",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_ConvCpltCallback",
+        "HAL_DMA_Init"
+      ],
+      "diff": {
+        "f1": "F1 无 DMAContinuousRequests 字段，连续采样需要 DMA 循环模式 + ADC 连续转换模式。",
+        "f4": "F4 需把 Init.DMAContinuousRequests 设为 ENABLE，DMA 才会持续被请求。"
+      }
+    },
+    {
+      "id": "HAL_ADC_Stop_DMA",
+      "name": "HAL_ADC_Stop_DMA",
+      "cat": "adc",
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_Stop_DMA(ADC_HandleTypeDef *hadc)",
+      "brief": "停止 ADC 与关联的 DMA 传输。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "停止",
+        "dma"
+      ],
+      "related": [
+        "HAL_ADC_Start_DMA"
+      ]
+    },
+    {
+      "id": "HAL_ADC_ConfigChannel",
+      "name": "HAL_ADC_ConfigChannel",
+      "cat": "adc",
+      "common": true,
+      "header": "stm32xx_hal_adc.h",
+      "sig": "HAL_StatusTypeDef HAL_ADC_ConfigChannel(ADC_HandleTypeDef *hadc, ADC_ChannelConfTypeDef *sConfig)",
+      "brief": "配置一个 ADC 通道：通道号、采样时间、Rank、单端/差分。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        },
+        {
+          "n": "sConfig",
+          "t": "ADC_ChannelConfTypeDef *",
+          "d": "Channel、Rank、SamplingTime 等"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "SamplingTime 要按信号源阻抗选择，阻抗大时采样时间要长，否则读数偏低。",
+        "多通道扫描时 Rank 决定转换顺序，必须连续编号。",
+        "内部通道（温度、VrefInt、Vbat）用 ADC_CHANNEL_TEMPSENSOR 等宏。"
+      ],
+      "example": "ADC_ChannelConfTypeDef sConfig = {0};\nsConfig.Channel      = ADC_CHANNEL_0;\nsConfig.Rank         = 1;\nsConfig.SamplingTime = ADC_SAMPLETIME_84CYCLES;\nHAL_ADC_ConfigChannel(&hadc1, &sConfig);",
+      "keywords": [
+        "通道",
+        "采样时间",
+        "rank",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_Init",
+        "HAL_ADC_Start"
+      ]
+    },
+    {
+      "id": "HAL_ADCEx_Calibration_Start",
+      "name": "HAL_ADCEx_Calibration_Start",
+      "cat": "adc",
+      "header": "stm32xx_hal_adc_ex.h",
+      "sig": "HAL_StatusTypeDef HAL_ADCEx_Calibration_Start(ADC_HandleTypeDef *hadc)",
+      "brief": "执行 ADC 自校准，减小失调误差，建议上电初始化后调用一次。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄（需已 HAL_ADC_Init）"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "F4/F1 等系列无参数；L4/H7 等新系列多一个 SingleDiff 参数（如 ADC_SINGLE_ENDED）。",
+        "校准期间不要启动转换。"
+      ],
+      "example": "HAL_ADCEx_Calibration_Start(&hadc1);",
+      "keywords": [
+        "校准",
+        "calibration",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_Init"
+      ],
+      "diff": {
+        "f1": "F1 的调用形式为 HAL_ADCEx_Calibration_Start(&hadc1)，只有一个句柄参数。",
+        "f4": "F4 同样只有一个句柄参数；带 SingleDiff 参数的版本属于 L4/H7 等新系列。"
+      }
+    },
+    {
+      "id": "HAL_ADC_ConvCpltCallback",
+      "name": "HAL_ADC_ConvCpltCallback",
+      "cat": "adc",
+      "header": "stm32xx_hal_adc.h",
+      "sig": "void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)   /* __weak */",
+      "brief": "ADC 规则组转换完成回调（中断/DMA 方式）。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "DMA 模式下回调时机为整个缓冲区传完（或半传输回调另有 HAL_ADC_ConvHalfCpltCallback）。"
+      ],
+      "example": "",
+      "keywords": [
+        "回调",
+        "转换完成",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_Start_DMA",
+        "HAL_ADC_Start_IT"
+      ]
+    },
+    {
+      "id": "HAL_ADC_IRQHandler",
+      "name": "HAL_ADC_IRQHandler",
+      "cat": "adc",
+      "header": "stm32xx_hal_adc.h",
+      "sig": "void HAL_ADC_IRQHandler(ADC_HandleTypeDef *hadc)",
+      "brief": "ADC 中断统一处理函数，分派转换完成与模拟看门狗事件。",
+      "params": [
+        {
+          "n": "hadc",
+          "t": "ADC_HandleTypeDef *",
+          "d": "ADC 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "在 ADCx_IRQHandler 中调用。"
+      ],
+      "example": "void ADC1_2_IRQHandler(void)\n{\n  HAL_ADC_IRQHandler(&hadc1);\n}",
+      "keywords": [
+        "中断服务",
+        "adc"
+      ],
+      "related": [
+        "HAL_ADC_Start_IT"
+      ]
+    },
+    {
+      "id": "HAL_DMA_Init",
+      "name": "HAL_DMA_Init",
+      "cat": "dma",
+      "common": true,
+      "header": "stm32xx_hal_dma.h",
+      "sig": "HAL_StatusTypeDef HAL_DMA_Init(DMA_HandleTypeDef *hdma)",
+      "brief": "初始化 DMA 通道：方向、增量模式、数据宽度、优先级、循环模式。",
+      "params": [
+        {
+          "n": "hdma",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄，需绑定 Instance 与 Parent"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "多数情况下由外设的 HAL_xxx_MspInit 自动调用，用户无需手写。",
+        "循环模式（CIRCULAR）适合 ADC 连续采样、UART 不定长接收。",
+        "MemoryInc 使能后源/目的地址自动递增，外设到内存传输通常要开。"
+      ],
+      "example": "DMA_HandleTypeDef hdma_usart1_tx;\nhdma_usart1_tx.Instance                 = DMA1_Stream6;\nhdma_usart1_tx.Init.Channel             = DMA_CHANNEL_4;\nhdma_usart1_tx.Init.Direction           = DMA_MEMORY_TO_PERIPH;\nhdma_usart1_tx.Init.PeriphInc           = DMA_PINC_DISABLE;\nhdma_usart1_tx.Init.MemInc              = DMA_MINC_ENABLE;\nhdma_usart1_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;\nhdma_usart1_tx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;\nhdma_usart1_tx.Init.Mode                = DMA_NORMAL;\nhdma_usart1_tx.Init.Priority            = DMA_PRIORITY_LOW;\nHAL_DMA_Init(&hdma_usart1_tx);",
+      "keywords": [
+        "dma",
+        "初始化",
+        "通道"
+      ],
+      "related": [
+        "HAL_DMA_Start_IT",
+        "HAL_DMA_IRQHandler"
+      ],
+      "diff": {
+        "f1": "F1 是 Channel 架构：Instance 填 DMA1_Channel4，Init 中没有 Channel 字段，每个通道的请求映射固定。",
+        "f4": "F4 是 Stream 架构：Instance 填 DMA1_Stream6，并且必须在 Init.Channel 指定请求映射。"
+      },
+      "example_f1": "DMA_HandleTypeDef hdma_usart1_tx;\nhdma_usart1_tx.Instance                 = DMA1_Channel4;\nhdma_usart1_tx.Init.Direction           = DMA_MEMORY_TO_PERIPH;\nhdma_usart1_tx.Init.PeriphInc           = DMA_PINC_DISABLE;\nhdma_usart1_tx.Init.MemInc              = DMA_MINC_ENABLE;\nhdma_usart1_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;\nhdma_usart1_tx.Init.MemDataAlignment    = DMA_MDATAALIGN_BYTE;\nhdma_usart1_tx.Init.Mode                = DMA_NORMAL;\nhdma_usart1_tx.Init.Priority            = DMA_PRIORITY_LOW;\nHAL_DMA_Init(&hdma_usart1_tx);   // F1 无 Init.Channel"
+    },
+    {
+      "id": "HAL_DMA_DeInit",
+      "name": "HAL_DMA_DeInit",
+      "cat": "dma",
+      "header": "stm32xx_hal_dma.h",
+      "sig": "HAL_StatusTypeDef HAL_DMA_DeInit(DMA_HandleTypeDef *hdma)",
+      "brief": "复位 DMA 通道配置。",
+      "params": [
+        {
+          "n": "hdma",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "反初始化",
+        "dma"
+      ],
+      "related": [
+        "HAL_DMA_Init"
+      ]
+    },
+    {
+      "id": "HAL_DMA_Start",
+      "name": "HAL_DMA_Start",
+      "cat": "dma",
+      "common": true,
+      "header": "stm32xx_hal_dma.h",
+      "sig": "HAL_StatusTypeDef HAL_DMA_Start(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t DstAddress, uint32_t DataLength)",
+      "brief": "启动一次 DMA 传输（无中断、无回调），阻塞配置后立即开始搬运。",
+      "params": [
+        {
+          "n": "hdma",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        },
+        {
+          "n": "SrcAddress",
+          "t": "uint32_t",
+          "d": "源地址（用 (uint32_t)buf 转换）"
+        },
+        {
+          "n": "DstAddress",
+          "t": "uint32_t",
+          "d": "目的地址"
+        },
+        {
+          "n": "DataLength",
+          "t": "uint32_t",
+          "d": "传输数据个数（不是字节数，单位由数据宽度决定）"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "完成后无回调，需轮询 HAL_DMA_GetState 或 HAL_DMA_PollForTransfer。",
+        "常用 HAL_DMA_Start_IT 代替。"
+      ],
+      "example": "HAL_DMA_Start(&hdma_mem2mem,\n               (uint32_t)src, (uint32_t)dst, 128);\nHAL_DMA_PollForTransfer(&hdma_mem2mem, HAL_DMA_FULL_TRANSFER, 100);",
+      "keywords": [
+        "dma",
+        "启动",
+        "搬运"
+      ],
+      "related": [
+        "HAL_DMA_Start_IT",
+        "HAL_DMA_PollForTransfer"
+      ]
+    },
+    {
+      "id": "HAL_DMA_Start_IT",
+      "name": "HAL_DMA_Start_IT",
+      "cat": "dma",
+      "common": true,
+      "header": "stm32xx_hal_dma.h",
+      "sig": "HAL_StatusTypeDef HAL_DMA_Start_IT(DMA_HandleTypeDef *hdma, uint32_t SrcAddress, uint32_t DstAddress, uint32_t DataLength)",
+      "brief": "启动 DMA 传输并使能传输完成中断，完成后调用 XferCpltCallback。",
+      "params": [
+        {
+          "n": "hdma",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        },
+        {
+          "n": "SrcAddress",
+          "t": "uint32_t",
+          "d": "源地址"
+        },
+        {
+          "n": "DstAddress",
+          "t": "uint32_t",
+          "d": "目的地址"
+        },
+        {
+          "n": "DataLength",
+          "t": "uint32_t",
+          "d": "传输个数"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_BUSY",
+      "notes": [
+        "需在 NVIC 中使能对应 DMAx_Streamy_IRQn 并实现中断函数调用 HAL_DMA_IRQHandler。",
+        "外设驱动内部通常已注册好回调，用户直接调用外设的 _DMA 接口即可。"
+      ],
+      "example": "HAL_DMA_Start_IT(&hdma_mem2mem, (uint32_t)src, (uint32_t)dst, 128);",
+      "keywords": [
+        "dma",
+        "中断",
+        "完成回调"
+      ],
+      "related": [
+        "HAL_DMA_IRQHandler",
+        "HAL_DMA_Start"
+      ]
+    },
+    {
+      "id": "HAL_DMA_Abort",
+      "name": "HAL_DMA_Abort",
+      "cat": "dma",
+      "header": "stm32xx_hal_dma.h",
+      "sig": "HAL_StatusTypeDef HAL_DMA_Abort(DMA_HandleTypeDef *hdma)",
+      "brief": "立即中止 DMA 传输并复位状态。",
+      "params": [
+        {
+          "n": "hdma",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "在中断中调用请用 HAL_DMA_Abort_IT 以避免阻塞。"
+      ],
+      "example": "",
+      "keywords": [
+        "中止",
+        "dma"
+      ],
+      "related": [
+        "HAL_DMA_Abort_IT"
+      ]
+    },
+    {
+      "id": "HAL_DMA_Abort_IT",
+      "name": "HAL_DMA_Abort_IT",
+      "cat": "dma",
+      "header": "stm32xx_hal_dma.h",
+      "sig": "HAL_StatusTypeDef HAL_DMA_Abort_IT(DMA_HandleTypeDef *hdma)",
+      "brief": "异步中止 DMA，完成后触发 XferAbortCallback。",
+      "params": [
+        {
+          "n": "hdma",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "用于中断上下文安全中止。"
+      ],
+      "example": "",
+      "keywords": [
+        "中止",
+        "异步",
+        "dma"
+      ],
+      "related": [
+        "HAL_DMA_Abort"
+      ]
+    },
+    {
+      "id": "HAL_DMA_PollForTransfer",
+      "name": "HAL_DMA_PollForTransfer",
+      "cat": "dma",
+      "header": "stm32xx_hal_dma.h",
+      "sig": "HAL_StatusTypeDef HAL_DMA_PollForTransfer(DMA_HandleTypeDef *hdma, HAL_DMA_LevelCompleteTypeDef CompleteLevel, uint32_t Timeout)",
+      "brief": "阻塞等待 DMA 传输完成（或半完成）状态。",
+      "params": [
+        {
+          "n": "hdma",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        },
+        {
+          "n": "CompleteLevel",
+          "t": "HAL_DMA_LevelCompleteTypeDef",
+          "d": "HAL_DMA_FULL_TRANSFER 或 HAL_DMA_HALF_TRANSFER"
+        },
+        {
+          "n": "Timeout",
+          "t": "uint32_t",
+          "d": "超时毫秒"
+        }
+      ],
+      "ret": "HAL_OK / HAL_TIMEOUT / HAL_ERROR",
+      "notes": [
+        "仅用于 HAL_DMA_Start 这类无回调场景。"
+      ],
+      "example": "",
+      "keywords": [
+        "轮询",
+        "等待",
+        "dma"
+      ],
+      "related": [
+        "HAL_DMA_Start"
+      ]
+    },
+    {
+      "id": "HAL_DMA_IRQHandler",
+      "name": "HAL_DMA_IRQHandler",
+      "cat": "dma",
+      "header": "stm32xx_hal_dma.h",
+      "sig": "void HAL_DMA_IRQHandler(DMA_HandleTypeDef *hdma)",
+      "brief": "DMA 中断统一处理，处理完成/半完成/错误事件并调用回调。",
+      "params": [
+        {
+          "n": "hdma",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "需在 DMAx_Streamy_IRQHandler 中调用。",
+        "忘记调用会导致外设一直处于 BUSY 状态。"
+      ],
+      "example": "void DMA1_Stream6_IRQHandler(void)\n{\n  HAL_DMA_IRQHandler(&hdma_usart1_tx);\n}",
+      "keywords": [
+        "中断服务",
+        "dma"
+      ],
+      "related": [
+        "HAL_DMA_Start_IT"
+      ]
+    },
+    {
+      "id": "__HAL_DMA_GET_FLAG",
+      "name": "__HAL_DMA_GET_FLAG",
+      "cat": "dma",
+      "header": "stm32xx_hal_dma.h",
+      "sig": "#define __HAL_DMA_GET_FLAG(__HANDLE__, __FLAG__)",
+      "brief": "宏：读取 DMA 中断标志（TC/HT/TE/DME）。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        },
+        {
+          "n": "__FLAG__",
+          "t": "宏参数",
+          "d": "标志，如 DMA_FLAG_TCIF0_4"
+        }
+      ],
+      "ret": "非 0 表示置位",
+      "notes": [
+        "不同系列标志命名不同（F4 为 _TCIFx_y，G4 为 _TCIFx）。"
+      ],
+      "example": "",
+      "keywords": [
+        "标志",
+        "宏",
+        "dma"
+      ],
+      "related": [
+        "__HAL_DMA_CLEAR_FLAG"
+      ],
+      "diff": {
+        "f1": "F1 的 DMA 标志按通道命名，如 DMA_FLAG_TC1 / DMA_FLAG_HT1 / DMA_FLAG_TE1。",
+        "f4": "F4 的 DMA 标志按 Stream 命名，如 DMA_FLAG_TCIF0_4。"
+      }
+    },
+    {
+      "id": "__HAL_DMA_CLEAR_FLAG",
+      "name": "__HAL_DMA_CLEAR_FLAG",
+      "cat": "dma",
+      "header": "stm32xx_hal_dma.h",
+      "sig": "#define __HAL_DMA_CLEAR_FLAG(__HANDLE__, __FLAG__)",
+      "brief": "宏：清除 DMA 中断标志。",
+      "params": [
+        {
+          "n": "__HANDLE__",
+          "t": "DMA_HandleTypeDef *",
+          "d": "DMA 句柄"
+        },
+        {
+          "n": "__FLAG__",
+          "t": "宏参数",
+          "d": "要清除的标志"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "清标志",
+        "宏"
+      ],
+      "related": [
+        "__HAL_DMA_GET_FLAG"
+      ]
+    },
+    {
+      "id": "HAL_FLASH_Unlock",
+      "name": "HAL_FLASH_Unlock",
+      "cat": "flash",
+      "common": true,
+      "header": "stm32xx_hal_flash.h",
+      "sig": "HAL_StatusTypeDef HAL_FLASH_Unlock(void)",
+      "brief": "解锁 FLASH 控制寄存器，擦写前必须先调用。",
+      "params": [],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "擦写完成后务必调用 HAL_FLASH_Lock 重新上锁，防止误写。",
+        "擦写期间取指会暂停，中断响应延迟变大，必要时把中断向量搬到 RAM。"
+      ],
+      "example": "HAL_FLASH_Unlock();\n/* 擦除 / 编程 */\nHAL_FLASH_Lock();",
+      "keywords": [
+        "flash",
+        "解锁",
+        "擦写"
+      ],
+      "related": [
+        "HAL_FLASH_Lock",
+        "HAL_FLASH_Program",
+        "HAL_FLASHEx_Erase"
+      ]
+    },
+    {
+      "id": "HAL_FLASH_Lock",
+      "name": "HAL_FLASH_Lock",
+      "cat": "flash",
+      "common": true,
+      "header": "stm32xx_hal_flash.h",
+      "sig": "HAL_StatusTypeDef HAL_FLASH_Lock(void)",
+      "brief": "锁定 FLASH 控制寄存器。",
+      "params": [],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "flash",
+        "上锁"
+      ],
+      "related": [
+        "HAL_FLASH_Unlock"
+      ]
+    },
+    {
+      "id": "HAL_FLASH_Program",
+      "name": "HAL_FLASH_Program",
+      "cat": "flash",
+      "common": true,
+      "header": "stm32xx_hal_flash.h",
+      "sig": "HAL_StatusTypeDef HAL_FLASH_Program(uint32_t TypeProgram, uint32_t Address, uint64_t Data)",
+      "brief": "向 FLASH 指定地址写入一个字/半字/双字。",
+      "params": [
+        {
+          "n": "TypeProgram",
+          "t": "uint32_t",
+          "d": "FLASH_TYPEPROGRAM_BYTE / HALFWORD / WORD / DOUBLEWORD（依系列）"
+        },
+        {
+          "n": "Address",
+          "t": "uint32_t",
+          "d": "目标地址，必须按写入宽度对齐"
+        },
+        {
+          "n": "Data",
+          "t": "uint64_t",
+          "d": "要写入的数据"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "写之前该扇区必须是已擦除状态（0xFF），FLASH 只能 1→0，不能直接改写。",
+        "地址必须按 TypeProgram 对齐，否则写入失败或硬件错误。",
+        "写入后可用 memcmp 校验。"
+      ],
+      "example": "HAL_FLASH_Unlock();\nHAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, 0x0800FC00, 0x12345678);\nHAL_FLASH_Lock();",
+      "keywords": [
+        "flash",
+        "写入",
+        "编程"
+      ],
+      "related": [
+        "HAL_FLASHEx_Erase",
+        "HAL_FLASH_Unlock"
+      ],
+      "diff": {
+        "f1": "F1 常用 FLASH_TYPEPROGRAM_HALFWORD（16 位）或 FLASH_TYPEPROGRAM_WORD（32 位）。",
+        "f4": "F4 支持 BYTE / HALFWORD / WORD / DOUBLEWORD 四种写入宽度。"
+      },
+      "example_f1": "HAL_FLASH_Unlock();\nHAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, 0x0801FC00, 0x12345678);\nHAL_FLASH_Lock();"
+    },
+    {
+      "id": "HAL_FLASHEx_Erase",
+      "name": "HAL_FLASHEx_Erase",
+      "cat": "flash",
+      "common": true,
+      "header": "stm32xx_hal_flash_ex.h",
+      "sig": "HAL_StatusTypeDef HAL_FLASHEx_Erase(FLASH_EraseInitTypeDef *pEraseInit, uint32_t *SectorError)",
+      "brief": "擦除一个或多个 FLASH 扇区/页。",
+      "params": [
+        {
+          "n": "pEraseInit",
+          "t": "FLASH_EraseInitTypeDef *",
+          "d": "TypeErase、Sector/Page、NbSectors 等"
+        },
+        {
+          "n": "SectorError",
+          "t": "uint32_t *",
+          "d": "输出出错的扇区号，0xFFFFFFFF 表示全部成功"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "F4 按扇区（Sector），F1/L4 按页（Page），字段名不同。",
+        "擦除会拖慢 CPU 取指，建议避开实时中断密集期。",
+        "务必确认地址范围，擦错扇区会丢失程序。"
+      ],
+      "example": "FLASH_EraseInitTypeDef er = {0};\nuint32_t err = 0xFFFFFFFF;\ner.TypeErase   = FLASH_TYPEERASE_SECTORS;\ner.Sector      = FLASH_SECTOR_11;\ner.NbSectors   = 1;\ner.VoltageRange = FLASH_VOLTAGE_RANGE_3;\n\nHAL_FLASH_Unlock();\nHAL_FLASHEx_Erase(&er, &err);\nHAL_FLASH_Lock();",
+      "keywords": [
+        "擦除",
+        "扇区",
+        "页",
+        "flash"
+      ],
+      "related": [
+        "HAL_FLASH_Program",
+        "HAL_FLASH_Unlock"
+      ],
+      "diff": {
+        "f1": "F1 按页擦除：TypeErase = FLASH_TYPEERASE_PAGES，使用 PageAddress 与 NbPages。",
+        "f4": "F4 按扇区擦除：TypeErase = FLASH_TYPEERASE_SECTORS，使用 Sector 与 NbSectors。"
+      },
+      "example_f1": "FLASH_EraseInitTypeDef er = {0};\nuint32_t err = 0xFFFFFFFF;\ner.TypeErase   = FLASH_TYPEERASE_PAGES;\ner.PageAddress = 0x0801FC00;\ner.NbPages     = 1;\n\nHAL_FLASH_Unlock();\nHAL_FLASHEx_Erase(&er, &err);\nHAL_FLASH_Lock();"
+    },
+    {
+      "id": "HAL_FLASH_GetError",
+      "name": "HAL_FLASH_GetError",
+      "cat": "flash",
+      "header": "stm32xx_hal_flash.h",
+      "sig": "uint32_t HAL_FLASH_GetError(void)",
+      "brief": "读取 FLASH 最近一次操作错误码。",
+      "params": [],
+      "ret": "错误位组合（PGSERR / PGPERR / WRPERR / OPERR 等）",
+      "notes": [
+        "擦写失败时用于定位原因：写保护、对齐错误、电压不足等。"
+      ],
+      "example": "",
+      "keywords": [
+        "错误码",
+        "flash"
+      ],
+      "related": [
+        "HAL_FLASH_Program"
+      ]
+    },
+    {
+      "id": "__HAL_FLASH_CLEAR_FLAG",
+      "name": "__HAL_FLASH_CLEAR_FLAG",
+      "cat": "flash",
+      "header": "stm32xx_hal_flash.h",
+      "sig": "#define __HAL_FLASH_CLEAR_FLAG(__FLAG__)",
+      "brief": "宏：清除 FLASH 状态标志。",
+      "params": [
+        {
+          "n": "__FLAG__",
+          "t": "宏参数",
+          "d": "标志位，如 FLASH_FLAG_EOP"
+        }
+      ],
+      "ret": "宏，无返回值",
+      "notes": [
+        "擦除前清除 EOP 等标志可避免误判。"
+      ],
+      "example": "__HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR);",
+      "keywords": [
+        "清标志",
+        "flash"
+      ],
+      "related": [
+        "HAL_FLASH_GetError"
+      ]
+    },
+    {
+      "id": "HAL_IWDG_Init",
+      "name": "HAL_IWDG_Init",
+      "cat": "wdg",
+      "common": true,
+      "header": "stm32xx_hal_iwdg.h",
+      "sig": "HAL_StatusTypeDef HAL_IWDG_Init(IWDG_HandleTypeDef *hiwdg)",
+      "brief": "初始化独立看门狗：预分频与重装载值，初始化后立即开始计数。",
+      "params": [
+        {
+          "n": "hiwdg",
+          "t": "IWDG_HandleTypeDef *",
+          "d": "IWDG 句柄，设置 Instance 与 Init"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "IWDG 由 LSI（约 32 kHz）驱动，超时 ≈ (4 × 2^Prescaler × Reload) / LSI。",
+        "一旦启动无法用软件关闭，只能复位。",
+        "喂狗周期必须小于超时时间，且留足余量。"
+      ],
+      "example": "IWDG_HandleTypeDef hiwdg;\nhiwdg.Instance       = IWDG;\nhiwdg.Init.Prescaler = IWDG_PRESCALER_64;   // 32kHz/64 = 500Hz\nhiwdg.Init.Reload    = 1000;                // 1000/500 = 2s\nhiwdg.Init.Window    = IWDG_WINDOW_DISABLE;\nHAL_IWDG_Init(&hiwdg);",
+      "keywords": [
+        "看门狗",
+        "iwdg",
+        "独立看门狗"
+      ],
+      "related": [
+        "HAL_IWDG_Refresh"
+      ]
+    },
+    {
+      "id": "HAL_IWDG_Refresh",
+      "name": "HAL_IWDG_Refresh",
+      "cat": "wdg",
+      "common": true,
+      "header": "stm32xx_hal_iwdg.h",
+      "sig": "HAL_StatusTypeDef HAL_IWDG_Refresh(IWDG_HandleTypeDef *hiwdg)",
+      "brief": "喂狗：重装载 IWDG 计数器，防止复位。",
+      "params": [
+        {
+          "n": "hiwdg",
+          "t": "IWDG_HandleTypeDef *",
+          "d": "IWDG 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [
+        "喂狗要放在主循环或由任务定期执行，切勿在中断里无条件喂狗，否则死循环也能喂活。"
+      ],
+      "example": "while (1) {\n  do_work();\n  HAL_IWDG_Refresh(&hiwdg);   // 心跳\n}",
+      "keywords": [
+        "喂狗",
+        "刷新",
+        "看门狗"
+      ],
+      "related": [
+        "HAL_IWDG_Init"
+      ]
+    },
+    {
+      "id": "HAL_WWDG_Init",
+      "name": "HAL_WWDG_Init",
+      "cat": "wdg",
+      "header": "stm32xx_hal_wwdg.h",
+      "sig": "HAL_StatusTypeDef HAL_WWDG_Init(WWDG_HandleTypeDef *hwwdg)",
+      "brief": "初始化窗口看门狗：预分频、窗口值、计数器初值。",
+      "params": [
+        {
+          "n": "hwwdg",
+          "t": "WWDG_HandleTypeDef *",
+          "d": "WWDG 句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "窗口看门狗要求喂狗发生在窗口内：太早或太晚都会复位。",
+        "时钟来自 PCLK1，适合精确监控任务时序。"
+      ],
+      "example": "WWDG_HandleTypeDef hwwdg;\nhwwdg.Instance = WWDG;\nhwwdg.Init.Prescaler = WWDG_PRESCALER_8;\nhwwdg.Init.Window    = 0x50;\nhwwdg.Init.Counter   = 0x7F;\nhwwdg.Init.EWIMode   = WWDG_EWI_DISABLE;\nHAL_WWDG_Init(&hwwdg);",
+      "keywords": [
+        "窗口看门狗",
+        "wwdg"
+      ],
+      "related": [
+        "HAL_WWDG_Refresh"
+      ]
+    },
+    {
+      "id": "HAL_WWDG_Refresh",
+      "name": "HAL_WWDG_Refresh",
+      "cat": "wdg",
+      "header": "stm32xx_hal_wwdg.h",
+      "sig": "HAL_StatusTypeDef HAL_WWDG_Refresh(WWDG_HandleTypeDef *hwwdg)",
+      "brief": "在窗口期内喂窗口看门狗。",
+      "params": [
+        {
+          "n": "hwwdg",
+          "t": "WWDG_HandleTypeDef *",
+          "d": "WWDG 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "喂狗",
+        "wwdg"
+      ],
+      "related": [
+        "HAL_WWDG_Init"
+      ]
+    },
+    {
+      "id": "HAL_WWDG_EarlyWakeupCallback",
+      "name": "HAL_WWDG_EarlyWakeupCallback",
+      "cat": "wdg",
+      "header": "stm32xx_hal_wwdg.h",
+      "sig": "void HAL_WWDG_EarlyWakeupCallback(WWDG_HandleTypeDef *hwwdg)   /* __weak */",
+      "brief": "窗口看门狗提前唤醒（EWI）中断回调。",
+      "params": [
+        {
+          "n": "hwwdg",
+          "t": "WWDG_HandleTypeDef *",
+          "d": "WWDG 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "该中断发生在复位前，可用于保存故障现场到备份寄存器。"
+      ],
+      "example": "",
+      "keywords": [
+        "回调",
+        "看门狗中断"
+      ],
+      "related": [
+        "HAL_WWDG_Init"
+      ]
+    },
+    {
+      "id": "HAL_RTC_Init",
+      "name": "HAL_RTC_Init",
+      "cat": "rtc",
+      "header": "stm32xx_hal_rtc.h",
+      "sig": "HAL_StatusTypeDef HAL_RTC_Init(RTC_HandleTypeDef *hrtc)",
+      "brief": "初始化 RTC：小时格式、异步/同步预分频、输出极性。",
+      "params": [
+        {
+          "n": "hrtc",
+          "t": "RTC_HandleTypeDef *",
+          "d": "RTC 句柄，设置 Instance 与 Init"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "首次配置需先 HAL_PWR_EnableBkUpAccess() 并选择 LSE/LSI 作为 RTC 时钟（HAL_RCC_OscConfig）。",
+        "预分频要按 LSE 32.768kHz 计算，才能得到 1Hz 日历。",
+        "RTC 由备份域供电，主电源断电后靠 VBAT 继续走时。"
+      ],
+      "example": "RTC_HandleTypeDef hrtc;\nhrtc.Instance          = RTC;\nhrtc.Init.HourFormat   = RTC_HOURFORMAT_24;\nhrtc.Init.AsynchPrediv = 127;      // (127+1) × (255+1) = 32768\nhrtc.Init.SynchPrediv  = 255;\nhrtc.Init.OutPut       = RTC_OUTPUT_DISABLE;\nHAL_RTC_Init(&hrtc);",
+      "keywords": [
+        "rtc",
+        "实时时钟",
+        "初始化"
+      ],
+      "related": [
+        "HAL_RTC_SetTime",
+        "HAL_RTC_GetTime"
+      ]
+    },
+    {
+      "id": "HAL_RTC_SetTime",
+      "name": "HAL_RTC_SetTime",
+      "cat": "rtc",
+      "common": true,
+      "header": "stm32xx_hal_rtc.h",
+      "sig": "HAL_StatusTypeDef HAL_RTC_SetTime(RTC_HandleTypeDef *hrtc, RTC_TimeTypeDef *sTime, uint32_t Format)",
+      "brief": "设置 RTC 时间（时/分/秒/夏令时）。",
+      "params": [
+        {
+          "n": "hrtc",
+          "t": "RTC_HandleTypeDef *",
+          "d": "RTC 句柄"
+        },
+        {
+          "n": "sTime",
+          "t": "RTC_TimeTypeDef *",
+          "d": "Hours / Minutes / Seconds / TimeFormat"
+        },
+        {
+          "n": "Format",
+          "t": "uint32_t",
+          "d": "RTC_FORMAT_BIN 或 RTC_FORMAT_BCD"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "TimeFormat 要与 Init.HourFormat 匹配（12 小时制需设 AM/PM）。",
+        "通常用 RTC_FORMAT_BIN 直接传十进制数。"
+      ],
+      "example": "RTC_TimeTypeDef t = {0};\nt.Hours   = 12;\nt.Minutes = 30;\nt.Seconds = 0;\nHAL_RTC_SetTime(&hrtc, &t, RTC_FORMAT_BIN);",
+      "keywords": [
+        "设置时间",
+        "rtc"
+      ],
+      "related": [
+        "HAL_RTC_GetTime",
+        "HAL_RTC_SetDate"
+      ]
+    },
+    {
+      "id": "HAL_RTC_GetTime",
+      "name": "HAL_RTC_GetTime",
+      "cat": "rtc",
+      "common": true,
+      "header": "stm32xx_hal_rtc.h",
+      "sig": "HAL_StatusTypeDef HAL_RTC_GetTime(RTC_HandleTypeDef *hrtc, RTC_TimeTypeDef *sTime, uint32_t Format)",
+      "brief": "读取当前 RTC 时间。",
+      "params": [
+        {
+          "n": "hrtc",
+          "t": "RTC_HandleTypeDef *",
+          "d": "RTC 句柄"
+        },
+        {
+          "n": "sTime",
+          "t": "RTC_TimeTypeDef *",
+          "d": "输出时间结构体"
+        },
+        {
+          "n": "Format",
+          "t": "uint32_t",
+          "d": "RTC_FORMAT_BIN / RTC_FORMAT_BCD"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "必须紧接 HAL_RTC_GetDate 调用，才能解除影子寄存器锁定；只读时间不读日期会导致时间停更。"
+      ],
+      "example": "RTC_TimeTypeDef t;\nRTC_DateTypeDef d;\nHAL_RTC_GetTime(&hrtc, &t, RTC_FORMAT_BIN);\nHAL_RTC_GetDate(&hrtc, &d, RTC_FORMAT_BIN);   // 必须成对调用",
+      "keywords": [
+        "读取时间",
+        "rtc"
+      ],
+      "related": [
+        "HAL_RTC_GetDate",
+        "HAL_RTC_SetTime"
+      ]
+    },
+    {
+      "id": "HAL_RTC_SetDate",
+      "name": "HAL_RTC_SetDate",
+      "cat": "rtc",
+      "header": "stm32xx_hal_rtc.h",
+      "sig": "HAL_StatusTypeDef HAL_RTC_SetDate(RTC_HandleTypeDef *hrtc, RTC_DateTypeDef *sDate, uint32_t Format)",
+      "brief": "设置 RTC 日期（年/月/日/星期）。",
+      "params": [
+        {
+          "n": "hrtc",
+          "t": "RTC_HandleTypeDef *",
+          "d": "RTC 句柄"
+        },
+        {
+          "n": "sDate",
+          "t": "RTC_DateTypeDef *",
+          "d": "Year(0-99) / Month / Date / WeekDay"
+        },
+        {
+          "n": "Format",
+          "t": "uint32_t",
+          "d": "RTC_FORMAT_BIN / _BCD"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "年份为 0~99，显示时需加 2000。",
+        "星期需自行计算，HAL 不会根据日期推算。"
+      ],
+      "example": "RTC_DateTypeDef d = {0};\nd.Year    = 26;              // 2026\nd.Month   = RTC_MONTH_OCTOBER;\nd.Date    = 29;\nd.WeekDay = RTC_WEEKDAY_THURSDAY;\nHAL_RTC_SetDate(&hrtc, &d, RTC_FORMAT_BIN);",
+      "keywords": [
+        "设置日期",
+        "rtc"
+      ],
+      "related": [
+        "HAL_RTC_GetDate",
+        "HAL_RTC_SetTime"
+      ]
+    },
+    {
+      "id": "HAL_RTC_GetDate",
+      "name": "HAL_RTC_GetDate",
+      "cat": "rtc",
+      "header": "stm32xx_hal_rtc.h",
+      "sig": "HAL_StatusTypeDef HAL_RTC_GetDate(RTC_HandleTypeDef *hrtc, RTC_DateTypeDef *sDate, uint32_t Format)",
+      "brief": "读取当前 RTC 日期。",
+      "params": [
+        {
+          "n": "hrtc",
+          "t": "RTC_HandleTypeDef *",
+          "d": "RTC 句柄"
+        },
+        {
+          "n": "sDate",
+          "t": "RTC_DateTypeDef *",
+          "d": "输出日期结构体"
+        },
+        {
+          "n": "Format",
+          "t": "uint32_t",
+          "d": "RTC_FORMAT_BIN / _BCD"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "与 HAL_RTC_GetTime 成对使用以解锁影子寄存器。"
+      ],
+      "example": "",
+      "keywords": [
+        "读取日期",
+        "rtc"
+      ],
+      "related": [
+        "HAL_RTC_GetTime"
+      ]
+    },
+    {
+      "id": "HAL_RTC_SetAlarm_IT",
+      "name": "HAL_RTC_SetAlarm_IT",
+      "cat": "rtc",
+      "header": "stm32xx_hal_rtc.h",
+      "sig": "HAL_StatusTypeDef HAL_RTC_SetAlarm_IT(RTC_HandleTypeDef *hrtc, RTC_AlarmTypeDef *sAlarm, uint32_t Format)",
+      "brief": "设置闹钟并使能中断，到达设定时间触发 HAL_RTC_AlarmAEventCallback。",
+      "params": [
+        {
+          "n": "hrtc",
+          "t": "RTC_HandleTypeDef *",
+          "d": "RTC 句柄"
+        },
+        {
+          "n": "sAlarm",
+          "t": "RTC_AlarmTypeDef *",
+          "d": "AlarmTime、AlarmMask、AlarmDateWeekDaySel 等"
+        },
+        {
+          "n": "Format",
+          "t": "uint32_t",
+          "d": "RTC_FORMAT_BIN / _BCD"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "AlarmMask 决定哪些字段参与比较（如只比较时和分）。",
+        "需要使能 RTC_Alarm_IRQn 并在中断中调用 HAL_RTC_AlarmIRQHandler。"
+      ],
+      "example": "RTC_AlarmTypeDef a = {0};\na.AlarmTime.Hours   = 7;\na.AlarmTime.Minutes = 0;\na.AlarmTime.Seconds = 0;\na.AlarmMask = RTC_ALARMMASK_DATEWEEKDAY | RTC_ALARMMASK_HOURS;\na.Alarm = RTC_ALARM_A;\nHAL_RTC_SetAlarm_IT(&hrtc, &a, RTC_FORMAT_BIN);",
+      "keywords": [
+        "闹钟",
+        "alarm",
+        "rtc"
+      ],
+      "related": [
+        "HAL_RTC_AlarmAEventCallback"
+      ]
+    },
+    {
+      "id": "HAL_RTC_AlarmAEventCallback",
+      "name": "HAL_RTC_AlarmAEventCallback",
+      "cat": "rtc",
+      "header": "stm32xx_hal_rtc.h",
+      "sig": "void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc)   /* __weak */",
+      "brief": "闹钟 A 触发回调。",
+      "params": [
+        {
+          "n": "hrtc",
+          "t": "RTC_HandleTypeDef *",
+          "d": "RTC 句柄"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "中断上下文，处理从简。"
+      ],
+      "example": "",
+      "keywords": [
+        "回调",
+        "闹钟"
+      ],
+      "related": [
+        "HAL_RTC_SetAlarm_IT"
+      ]
+    },
+    {
+      "id": "HAL_PWR_EnterSLEEPMode",
+      "name": "HAL_PWR_EnterSLEEPMode",
+      "cat": "pwr",
+      "header": "stm32xx_hal_pwr.h",
+      "sig": "void HAL_PWR_EnterSLEEPMode(uint32_t Regulator, uint8_t SLEEPEntry)",
+      "brief": "进入 Sleep 模式：CPU 停时钟，外设与内核时钟继续运行，任意中断可唤醒。",
+      "params": [
+        {
+          "n": "Regulator",
+          "t": "uint32_t",
+          "d": "PWR_MAINREGULATOR_ON 或 PWR_LOWPOWERREGULATOR_ON"
+        },
+        {
+          "n": "SLEEPEntry",
+          "t": "uint8_t",
+          "d": "PWR_SLEEPENTRY_WFI 或 PWR_SLEEPENTRY_WFE"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "WFI 唤醒后从下一条指令继续；WFE 需事件唤醒。",
+        "唤醒源为任意中断，功耗通常在 mA 级。"
+      ],
+      "example": "HAL_SuspendTick();                 // 睡眠期间停 tick\nHAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON, PWR_SLEEPENTRY_WFI);\nHAL_ResumeTick();",
+      "keywords": [
+        "低功耗",
+        "睡眠",
+        "sleep"
+      ],
+      "related": [
+        "HAL_PWR_EnterSTOPMode",
+        "__WFI"
+      ]
+    },
+    {
+      "id": "HAL_PWR_EnterSTOPMode",
+      "name": "HAL_PWR_EnterSTOPMode",
+      "cat": "pwr",
+      "header": "stm32xx_hal_pwr.h",
+      "sig": "void HAL_PWR_EnterSTOPMode(uint32_t Regulator, uint8_t STOPEntry)",
+      "brief": "进入 STOP 模式：主时钟停止，功耗可降到几十 µA，任意 EXTI 事件唤醒。",
+      "params": [
+        {
+          "n": "Regulator",
+          "t": "uint32_t",
+          "d": "PWR_MAINREGULATOR_ON / PWR_LOWPOWERREGULATOR_ON"
+        },
+        {
+          "n": "STOPEntry",
+          "t": "uint8_t",
+          "d": "PWR_STOPENTRY_WFI / WFE"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "唤醒后系统时钟回到 HSI，需要重新配置系统时钟（HAL_RCC_ClockConfig）。",
+        "HAL tick 会停止，唤醒后需 HAL_IncTick 校准或重新初始化时基。",
+        "唤醒源必须提前在 EXTI 中配置（如按键、RTC 闹钟）。"
+      ],
+      "example": "HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);\nSystemClock_Config();      // 唤醒后恢复时钟\nSystemCoreClockUpdate();",
+      "keywords": [
+        "stop",
+        "低功耗",
+        "唤醒"
+      ],
+      "related": [
+        "HAL_PWR_EnterSTANDBYMode",
+        "SystemClock_Config"
+      ]
+    },
+    {
+      "id": "HAL_PWR_EnterSTANDBYMode",
+      "name": "HAL_PWR_EnterSTANDBYMode",
+      "cat": "pwr",
+      "header": "stm32xx_hal_pwr.h",
+      "sig": "void HAL_PWR_EnterSTANDBYMode(void)",
+      "brief": "进入待机模式：最低功耗（µA 级），唤醒后等同复位重新运行。",
+      "params": [],
+      "ret": "void",
+      "notes": [
+        "待机唤醒会复位 MCU，程序从 main 重新开始。",
+        "唤醒源限于 WKUP 引脚、RTC、IWDG 复位等。",
+        "进入前应保存必要状态到备份寄存器或 FLASH。"
+      ],
+      "example": "__HAL_RCC_PWR_CLK_ENABLE();\nHAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1);\nHAL_PWR_EnterSTANDBYMode();",
+      "keywords": [
+        "待机",
+        "standby",
+        "低功耗"
+      ],
+      "related": [
+        "HAL_PWR_EnterSTOPMode",
+        "HAL_PWR_EnableWakeUpPin"
+      ]
+    },
+    {
+      "id": "HAL_PWR_EnableBkUpAccess",
+      "name": "HAL_PWR_EnableBkUpAccess",
+      "cat": "pwr",
+      "header": "stm32xx_hal_pwr.h",
+      "sig": "void HAL_PWR_EnableBkUpAccess(void)",
+      "brief": "使能对备份域（RTC、备份寄存器、LSE）的写访问。",
+      "params": [],
+      "ret": "void",
+      "notes": [
+        "配置 RTC 或写 BKP 寄存器前必须调用，否则写入无效。",
+        "部分系列需先使能 PWR 时钟。"
+      ],
+      "example": "__HAL_RCC_PWR_CLK_ENABLE();\nHAL_PWR_EnableBkUpAccess();\n__HAL_RCC_BKP_CLK_ENABLE();",
+      "keywords": [
+        "备份域",
+        "rtc",
+        "bkp"
+      ],
+      "related": [
+        "HAL_RTC_Init"
+      ]
+    },
+    {
+      "id": "HAL_PWR_EnableWakeUpPin",
+      "name": "HAL_PWR_EnableWakeUpPin",
+      "cat": "pwr",
+      "header": "stm32xx_hal_pwr.h",
+      "sig": "void HAL_PWR_EnableWakeUpPin(uint32_t WakeUpPinPolarity)",
+      "brief": "使能 WKUP 唤醒引脚并指定有效电平。",
+      "params": [
+        {
+          "n": "WakeUpPinPolarity",
+          "t": "uint32_t",
+          "d": "如 PWR_WAKEUP_PIN1_HIGH / PWR_WAKEUP_PIN1"
+        }
+      ],
+      "ret": "void",
+      "notes": [
+        "不同系列宏名称有差异（带 _HIGH/_LOW 后缀）。"
+      ],
+      "example": "",
+      "keywords": [
+        "唤醒引脚",
+        "低功耗"
+      ],
+      "related": [
+        "HAL_PWR_EnterSTANDBYMode"
+      ]
+    },
+    {
+      "id": "HAL_CAN_Init",
+      "name": "HAL_CAN_Init",
+      "cat": "can",
+      "header": "stm32xx_hal_can.h",
+      "sig": "HAL_StatusTypeDef HAL_CAN_Init(CAN_HandleTypeDef *hcan)",
+      "brief": "初始化 CAN 控制器：工作模式、位时序（预分频、BS1/BS2、SJW）、自动重传、自动唤醒。",
+      "params": [
+        {
+          "n": "hcan",
+          "t": "CAN_HandleTypeDef *",
+          "d": "CAN 句柄，设置 Instance 与 Init"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "位时序必须与总线波特率一致：波特率 = PCLK / (Prescaler × (BS1 + BS2 + 1))。",
+        "同一总线所有节点波特率与采样点必须一致，否则通信失败。",
+        "初始化后还需配置过滤器并 HAL_CAN_Start。"
+      ],
+      "example": "CAN_HandleTypeDef hcan1;\n\nhcan1.Instance                  = CAN1;\nhcan1.Init.Prescaler            = 6;\nhcan1.Init.Mode                 = CAN_MODE_NORMAL;\nhcan1.Init.SyncJumpWidth        = CAN_SJW_1TQ;\nhcan1.Init.TimeSeg1             = CAN_BS1_11TQ;\nhcan1.Init.TimeSeg2             = CAN_BS2_2TQ;\nhcan1.Init.TimeTriggeredMode    = DISABLE;\nhcan1.Init.AutoBusOff           = DISABLE;\nhcan1.Init.AutoWakeUp           = DISABLE;\nhcan1.Init.AutoRetransmission   = ENABLE;\nhcan1.Init.ReceiveFifoLocked    = DISABLE;\nhcan1.Init.TransmitFifoPriority = DISABLE;\nHAL_CAN_Init(&hcan1);",
+      "keywords": [
+        "can",
+        "初始化",
+        "波特率",
+        "位时序"
+      ],
+      "related": [
+        "HAL_CAN_Start",
+        "HAL_CAN_AddTxMessage"
+      ],
+      "diff": {
+        "f1": "F1 与 F4 都是 bxCAN，初始化参数基本一致；两者都不支持 CAN FD。",
+        "f4": "F4 与 F1 的 bxCAN 参数一致；CAN FD 需要 FDCAN 系列（如 H7/G4）。"
+      }
+    },
+    {
+      "id": "HAL_CAN_Start",
+      "name": "HAL_CAN_Start",
+      "cat": "can",
+      "header": "stm32xx_hal_can.h",
+      "sig": "HAL_StatusTypeDef HAL_CAN_Start(CAN_HandleTypeDef *hcan)",
+      "brief": "启动 CAN 控制器，进入正常通信状态。",
+      "params": [
+        {
+          "n": "hcan",
+          "t": "CAN_HandleTypeDef *",
+          "d": "CAN 句柄"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "必须先配置好过滤器，否则收到的报文会被丢弃。"
+      ],
+      "example": "HAL_CAN_Start(&hcan1);",
+      "keywords": [
+        "启动",
+        "can"
+      ],
+      "related": [
+        "HAL_CAN_Stop",
+        "HAL_CAN_ActivateNotification"
+      ]
+    },
+    {
+      "id": "HAL_CAN_Stop",
+      "name": "HAL_CAN_Stop",
+      "cat": "can",
+      "header": "stm32xx_hal_can.h",
+      "sig": "HAL_StatusTypeDef HAL_CAN_Stop(CAN_HandleTypeDef *hcan)",
+      "brief": "停止 CAN 控制器。",
+      "params": [
+        {
+          "n": "hcan",
+          "t": "CAN_HandleTypeDef *",
+          "d": "CAN 句柄"
+        }
+      ],
+      "ret": "HAL_OK",
+      "notes": [],
+      "example": "",
+      "keywords": [
+        "停止",
+        "can"
+      ],
+      "related": [
+        "HAL_CAN_Start"
+      ]
+    },
+    {
+      "id": "HAL_CAN_AddTxMessage",
+      "name": "HAL_CAN_AddTxMessage",
+      "cat": "can",
+      "common": true,
+      "header": "stm32xx_hal_can.h",
+      "sig": "HAL_StatusTypeDef HAL_CAN_AddTxMessage(CAN_HandleTypeDef *hcan, CAN_TxHeaderTypeDef *pHeader, uint8_t aData[], uint32_t *pTxMailbox)",
+      "brief": "把一帧报文放入发送邮箱，由硬件自动发送。",
+      "params": [
+        {
+          "n": "hcan",
+          "t": "CAN_HandleTypeDef *",
+          "d": "CAN 句柄"
+        },
+        {
+          "n": "pHeader",
+          "t": "CAN_TxHeaderTypeDef *",
+          "d": "StdId/ExtId、IDE、RTR、DLC"
+        },
+        {
+          "n": "aData",
+          "t": "uint8_t[]",
+          "d": "数据，最多 8 字节（CAN FD 更多）"
+        },
+        {
+          "n": "pTxMailbox",
+          "t": "uint32_t *",
+          "d": "输出使用的邮箱号"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR / HAL_BUSY（三个邮箱都满）",
+      "notes": [
+        "返回 HAL_BUSY 时应等待发送完成回调再重试，不要死等。",
+        "StdId 为 11 位标准帧 ID，ExtId 为 29 位扩展帧 ID。"
+      ],
+      "example": "CAN_TxHeaderTypeDef tx = {0};\nuint32_t mailbox;\nuint8_t data[8] = {0x11, 0x22, 0x33};\n\ntx.StdId = 0x123;\ntx.IDE   = CAN_ID_STD;\ntx.RTR   = CAN_RTR_DATA;\ntx.DLC   = 3;\nHAL_CAN_AddTxMessage(&hcan1, &tx, data, &mailbox);",
+      "keywords": [
+        "发送",
+        "报文",
+        "can"
+      ],
+      "related": [
+        "HAL_CAN_GetRxMessage",
+        "HAL_CAN_ActivateNotification"
+      ]
+    },
+    {
+      "id": "HAL_CAN_GetRxMessage",
+      "name": "HAL_CAN_GetRxMessage",
+      "cat": "can",
+      "common": true,
+      "header": "stm32xx_hal_can.h",
+      "sig": "HAL_StatusTypeDef HAL_CAN_GetRxMessage(CAN_HandleTypeDef *hcan, uint32_t RxFifo, CAN_RxHeaderTypeDef *pHeader, uint8_t aData[])",
+      "brief": "从接收 FIFO 取出一帧报文。",
+      "params": [
+        {
+          "n": "hcan",
+          "t": "CAN_HandleTypeDef *",
+          "d": "CAN 句柄"
+        },
+        {
+          "n": "RxFifo",
+          "t": "uint32_t",
+          "d": "CAN_RX_FIFO0 或 CAN_RX_FIFO1"
+        },
+        {
+          "n": "pHeader",
+          "t": "CAN_RxHeaderTypeDef *",
+          "d": "输出报文头（ID、DLC 等）"
+        },
+        {
+          "n": "aData",
+          "t": "uint8_t[]",
+          "d": "输出数据缓冲区"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "通常在 HAL_CAN_RxFifo0MsgPendingCallback 中调用。",
+        "必须及时取走，FIFO 满后新报文会被丢弃。"
+      ],
+      "example": "void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)\n{\n  CAN_RxHeaderTypeDef rx;\n  uint8_t data[8];\n  if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx, data) == HAL_OK) {\n    handle_can_frame(rx.StdId, data, rx.DLC);\n  }\n}",
+      "keywords": [
+        "接收",
+        "报文",
+        "can",
+        "fifo"
+      ],
+      "related": [
+        "HAL_CAN_ActivateNotification",
+        "HAL_CAN_AddTxMessage"
+      ]
+    },
+    {
+      "id": "HAL_CAN_ActivateNotification",
+      "name": "HAL_CAN_ActivateNotification",
+      "cat": "can",
+      "header": "stm32xx_hal_can.h",
+      "sig": "HAL_StatusTypeDef HAL_CAN_ActivateNotification(CAN_HandleTypeDef *hcan, uint32_t ActiveITs)",
+      "brief": "使能 CAN 中断（接收挂起、发送完成、错误等）。",
+      "params": [
+        {
+          "n": "hcan",
+          "t": "CAN_HandleTypeDef *",
+          "d": "CAN 句柄"
+        },
+        {
+          "n": "ActiveITs",
+          "t": "uint32_t",
+          "d": "CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_TX_MAILBOX_EMPTY 等"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "需要使能 CANx_RX0_IRQn / CANx_TX_IRQn 等中断并在中断中调用 HAL_CAN_IRQHandler。"
+      ],
+      "example": "HAL_CAN_ActivateNotification(&hcan1,\n    CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_TX_MAILBOX_EMPTY);",
+      "keywords": [
+        "中断使能",
+        "can"
+      ],
+      "related": [
+        "HAL_CAN_GetRxMessage"
+      ]
+    },
+    {
+      "id": "HAL_CAN_ConfigFilter",
+      "name": "HAL_CAN_ConfigFilter",
+      "cat": "can",
+      "common": true,
+      "header": "stm32xx_hal_can.h",
+      "sig": "HAL_StatusTypeDef HAL_CAN_ConfigFilter(CAN_HandleTypeDef *hcan, CAN_FilterTypeDef *sFilterConfig)",
+      "brief": "配置接收过滤器：ID、掩码/列表模式、FIFO 分配、激活。",
+      "params": [
+        {
+          "n": "hcan",
+          "t": "CAN_HandleTypeDef *",
+          "d": "CAN 句柄（需处于初始化状态）"
+        },
+        {
+          "n": "sFilterConfig",
+          "t": "CAN_FilterTypeDef *",
+          "d": "FilterBank / FilterMode / FilterIdHigh/Low / FilterFIFOAssignment 等"
+        }
+      ],
+      "ret": "HAL_OK / HAL_ERROR",
+      "notes": [
+        "必须在 HAL_CAN_Start 之前调用。",
+        "掩码模式：FilterMaskId 某位为 1 表示该位必须匹配，为 0 表示不关心。",
+        "全通配可把 FilterMaskIdHigh/Low 设为 0。"
+      ],
+      "example": "CAN_FilterTypeDef f = {0};\nf.FilterBank           = 0;\nf.FilterMode           = CAN_FILTERMODE_IDMASK;\nf.FilterScale          = CAN_FILTERSCALE_32BIT;\nf.FilterIdHigh         = 0x123 << 5;\nf.FilterIdLow          = 0x0000;\nf.FilterMaskIdHigh     = 0xFFFF;\nf.FilterMaskIdLow      = 0x0000;\nf.FilterFIFOAssignment = CAN_RX_FIFO0;\nf.FilterActivation     = ENABLE;\nHAL_CAN_ConfigFilter(&hcan1, &f);",
+      "keywords": [
+        "过滤器",
+        "filter",
+        "can",
+        "掩码"
+      ],
+      "related": [
+        "HAL_CAN_Start",
+        "HAL_CAN_GetRxMessage"
+      ]
+    },
+    {
+      "id": "HAL_CAN_GetError",
+      "name": "HAL_CAN_GetError",
+      "cat": "can",
+      "header": "stm32xx_hal_can.h",
+      "sig": "uint32_t HAL_CAN_GetError(CAN_HandleTypeDef *hcan)",
+      "brief": "读取 CAN 错误状态（位填充、格式、ACK、总线关闭等）。",
+      "params": [
+        {
+          "n": "hcan",
+          "t": "CAN_HandleTypeDef *",
+          "d": "CAN 句柄"
+        }
+      ],
+      "ret": "错误码组合，如 HAL_CAN_ERROR_ACK / _BOF / _STF",
+      "notes": [
+        "ACK 错误通常是总线上没有其他节点应答（未接终端电阻或对端未上电）。"
+      ],
+      "example": "",
+      "keywords": [
+        "错误",
+        "can"
+      ],
+      "related": [
+        "HAL_CAN_Init"
+      ]
+    },
+    {
+      "id": "__HAL_RCC_AFIO_CLK_ENABLE",
+      "name": "__HAL_RCC_AFIO_CLK_ENABLE",
+      "cat": "rcc",
+      "header": "stm32f1xx_hal_rcc.h",
+      "sig": "#define __HAL_RCC_AFIO_CLK_ENABLE()",
+      "brief": "F1 特有：使能 AFIO 时钟。使用引脚重映射或外部中断前必须调用。",
+      "params": [],
+      "ret": "宏，无返回值",
+      "notes": [
+        "AFIO 负责 F1 的引脚重映射（USART/I2C/SPI/CAN 换脚）与 EXTI 线映射。",
+        "F1 上配置 EXTI 时，HAL_GPIO_Init 会写 AFIO->EXTICR，因此同样需要 AFIO 时钟。",
+        "F4 没有 AFIO，对应功能由 SYSCFG 提供（__HAL_RCC_SYSCFG_CLK_ENABLE）。"
+      ],
+      "example": "__HAL_RCC_AFIO_CLK_ENABLE();\n__HAL_AFIO_REMAP_SWJ_NOJTAG();",
+      "keywords": [
+        "afio",
+        "时钟",
+        "重映射",
+        "f1"
+      ],
+      "related": [
+        "__HAL_AFIO_REMAP_USART1_ENABLE"
+      ],
+      "series": "f1"
+    },
+    {
+      "id": "__HAL_AFIO_REMAP_USART1_ENABLE",
+      "name": "__HAL_AFIO_REMAP_USART1_ENABLE",
+      "cat": "gpio",
+      "header": "stm32f1xx_hal_gpio_ex.h",
+      "sig": "#define __HAL_AFIO_REMAP_USART1_ENABLE()",
+      "brief": "F1 特有：把 USART1 从 PA9/PA10 重映射到 PB6/PB7。",
+      "params": [],
+      "ret": "宏，无返回值",
+      "notes": [
+        "重映射后要把 PB6 配为 TX、PB7 配为 RX（各系列引脚方向不同，以数据手册为准）。",
+        "调用前必须先 __HAL_RCC_AFIO_CLK_ENABLE()。",
+        "对应还有 __HAL_AFIO_REMAP_USART1_DISABLE() 恢复默认引脚。"
+      ],
+      "example": "__HAL_RCC_AFIO_CLK_ENABLE();\n__HAL_AFIO_REMAP_USART1_ENABLE();   // USART1 -> PB6/PB7",
+      "keywords": [
+        "重映射",
+        "usart1",
+        "afio",
+        "f1"
+      ],
+      "related": [
+        "__HAL_RCC_AFIO_CLK_ENABLE",
+        "HAL_UART_MspInit"
+      ],
+      "series": "f1"
+    },
+    {
+      "id": "__HAL_AFIO_REMAP_I2C1_ENABLE",
+      "name": "__HAL_AFIO_REMAP_I2C1_ENABLE",
+      "cat": "gpio",
+      "header": "stm32f1xx_hal_gpio_ex.h",
+      "sig": "#define __HAL_AFIO_REMAP_I2C1_ENABLE()",
+      "brief": "F1 特有：把 I2C1 从 PB6/PB7 重映射到 PB8/PB9。",
+      "params": [],
+      "ret": "宏，无返回值",
+      "notes": [
+        "PB8/PB9 仍需配置为开漏复用模式并外接上拉。",
+        "重映射前必须使能 AFIO 时钟。"
+      ],
+      "example": "__HAL_RCC_AFIO_CLK_ENABLE();\n__HAL_AFIO_REMAP_I2C1_ENABLE();   // I2C1 -> PB8/PB9",
+      "keywords": [
+        "重映射",
+        "i2c1",
+        "afio",
+        "f1"
+      ],
+      "related": [
+        "__HAL_RCC_AFIO_CLK_ENABLE",
+        "HAL_I2C_MspInit"
+      ],
+      "series": "f1"
+    },
+    {
+      "id": "__HAL_AFIO_REMAP_SWJ_NOJTAG",
+      "name": "__HAL_AFIO_REMAP_SWJ_NOJTAG",
+      "cat": "gpio",
+      "header": "stm32f1xx_hal_gpio_ex.h",
+      "sig": "#define __HAL_AFIO_REMAP_SWJ_NOJTAG()",
+      "brief": "F1 特有：关闭 JTAG、保留 SWD，释放 PA13/PA14/PA15/PB3/PB4 中的 JTAG 引脚。",
+      "params": [],
+      "ret": "宏，无返回值",
+      "notes": [
+        "很多 F1 板子把 PA15/PB3/PB4 当普通 IO 用，必须先关 JTAG，否则配置无效。",
+        "保留 SWD（PA13/PA14）以便继续调试；完全关闭调试可用 __HAL_AFIO_REMAP_SWJ_DISABLE()，但会失去下载能力。"
+      ],
+      "example": "__HAL_RCC_AFIO_CLK_ENABLE();\n__HAL_AFIO_REMAP_SWJ_NOJTAG();   // 释放 PA15/PB3/PB4",
+      "keywords": [
+        "jtag",
+        "swd",
+        "复用",
+        "f1"
+      ],
+      "related": [
+        "__HAL_RCC_AFIO_CLK_ENABLE"
+      ],
+      "series": "f1"
+    }
+  ]
+}
