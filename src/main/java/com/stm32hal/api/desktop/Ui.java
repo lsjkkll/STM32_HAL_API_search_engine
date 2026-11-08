@@ -39,7 +39,7 @@ public final class Ui {
     public static final Color GOOD = new Color(0x34D399);
     public static final Color WARN = new Color(0xFBBF24);
 
-    public static final Font SANS = new Font(resolveUiFamily(), Font.PLAIN, 13);
+    public static final Font SANS = resolveUiFont();
     public static final Font MONO = new Font(Font.MONOSPACED, Font.PLAIN, 12);
 
     /** 按屏幕逻辑分辨率放大字号，2K（2560）屏幕约 1.4 倍。 */
@@ -66,27 +66,73 @@ public final class Ui {
         return 1.0f;
     }
 
-    /** 优先使用黑体；系统没有时退到其他中文无衬线字体。 */
-    private static String resolveUiFamily() {
-        String[] families = {
-                "SimHei", "Microsoft YaHei", "PingFang SC",
-                "Noto Sans CJK SC", "WenQuanYi Micro Hei"
+    /**
+     * 界面字体：优先黑体（SimHei）。中文 Windows 会把字体家族名本地化成“黑体”“微软雅黑”，
+     * 直接按英文名查表会查不到而悄悄回退到偏细的逻辑字体，所以这里既查英文名，
+     * 也校验 new Font 实际解析到的家族名，最后才退到逻辑无衬线字体。
+     */
+    private static Font resolveUiFont() {
+        String[] candidates = {
+                "SimHei", "黑体",
+                "DengXian", "等线",
+                "Microsoft YaHei", "微软雅黑",
+                "PingFang SC", "Hiragino Sans GB",
+                "Noto Sans CJK SC", "Source Han Sans SC", "WenQuanYi Micro Hei"
         };
-        try {
-            java.util.Set<String> available = new java.util.HashSet<>(java.util.Arrays.asList(
-                    java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
-            for (String family : families) {
-                if (available.contains(family)) {
-                    return family;
-                }
+        java.util.Set<String> available = availableFamilies();
+        for (String name : candidates) {
+            if (available.contains(name)) {
+                return new Font(name, Font.PLAIN, 13);
             }
-        } catch (Exception ignored) {
-            // 字体枚举失败时回退到逻辑字体
+            Font probe = new Font(name, Font.PLAIN, 13);
+            // 名字不存在时 Java 会回退到 Dialog；能解析成别的家族说明系统里确实有这个字体。
+            if (!Font.DIALOG.equals(probe.getFamily())) {
+                return probe;
+            }
         }
-        return Font.SANS_SERIF;
+        Font loaded = loadUiFontFile();
+        if (loaded != null) {
+            return loaded;
+        }
+        return new Font(Font.SANS_SERIF, Font.PLAIN, 13);
     }
 
-    /** 界面文字统一加粗，并按屏幕比例放大。 */
+    private static java.util.Set<String> availableFamilies() {
+        try {
+            return new java.util.HashSet<>(java.util.Arrays.asList(
+                    java.awt.GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames()));
+        } catch (Exception ignored) {
+            // 字体枚举失败时返回空集合，交给后续的名称探测与文件加载
+            return java.util.Set.of();
+        }
+    }
+
+    /** 名称探测全部失败时，直接读系统中文字体文件（Windows 自带黑体）。 */
+    private static Font loadUiFontFile() {
+        String windir = System.getenv("WINDIR");
+        String[] files = {
+                windir == null ? "" : windir + "\\Fonts\\simhei.ttf",
+                windir == null ? "" : windir + "\\Fonts\\Deng.ttf",
+                "/System/Library/Fonts/PingFang.ttc"
+        };
+        for (String path : files) {
+            if (path.isEmpty()) {
+                continue;
+            }
+            try {
+                java.io.File file = new java.io.File(path);
+                if (!file.isFile()) {
+                    continue;
+                }
+                return Font.createFont(Font.TRUETYPE_FONT, file).deriveFont(Font.PLAIN, 13f);
+            } catch (Exception ignored) {
+                // 当前文件不可用时继续尝试下一个
+            }
+        }
+        return null;
+    }
+
+    /** 界面文字统一加粗（黑体无粗体字面，由 Java 合成加粗），并按屏幕比例放大。 */
     public static Font sans(float size, int style) {
         int weight = (style == Font.PLAIN) ? Font.BOLD : style;
         return SANS.deriveFont(weight, size * SCALE);
