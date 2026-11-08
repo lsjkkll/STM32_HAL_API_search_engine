@@ -1,7 +1,7 @@
 {
   "meta": {
     "name": "STM32 HAL API 速查",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "updated": "2026-11-08",
     "note": "按 STM32CubeMX 工程组织：每章含 CubeMX 配置步骤、USER CODE 区示例；支持 F1/F4/C0/G0/G4/H5/H7/L0/L1/L4/L5/U0/U5 系列切换，FDCAN 章节仅对支持的系列显示。"
   },
