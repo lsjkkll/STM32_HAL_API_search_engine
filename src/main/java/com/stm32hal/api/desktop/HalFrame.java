@@ -1052,12 +1052,13 @@ public final class HalFrame extends JFrame {
     }
 
     private JComponent codeBlock(String title, String code) {
-        RoundPanel card = new RoundPanel(Ui.SURFACE1, Ui.STROKE, 12);
+        RoundPanel card = new RoundPanel(Ui.CODE_BG, Ui.CODE_LINE, 10);
         card.setLayout(new BorderLayout());
-        card.setBorder(new EmptyBorder(9, 12, 10, 12));
+        card.setBorder(new EmptyBorder(8, 10, 0, 8));
 
         JPanel head = new JPanel(new BorderLayout(8, 0));
         head.setOpaque(false);
+        head.setBorder(new javax.swing.border.MatteBorder(0, 0, 1, 0, Ui.CODE_LINE));
         head.add(Ui.label(title, Ui.sans(10f, Font.BOLD), Ui.MUTED), BorderLayout.WEST);
         Ui.GhostButton copy = new Ui.GhostButton("复制");
         copy.addActionListener(e -> {
@@ -1070,10 +1071,9 @@ public final class HalFrame extends JFrame {
         head.add(copy, BorderLayout.EAST);
         card.add(head, BorderLayout.NORTH);
 
-        Ui.CodeArea area = new Ui.CodeArea(code, Ui.alpha(Ui.TEXT, 0.96f));
+        Ui.CodeArea area = new Ui.CodeArea(code);
         area.putClientProperty("inset", 24);
         wrapAreas.add(area);
-        area.setBorder(new EmptyBorder(6, 0, 0, 0));
         card.add(area, BorderLayout.CENTER);
         return card;
     }

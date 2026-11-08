@@ -39,6 +39,18 @@ public final class Ui {
     public static final Color GOOD = new Color(0x34D399);
     public static final Color WARN = new Color(0xFBBF24);
 
+    /** 代码面板配色对齐 CLion（新版 Dark / Darcula 主题）。 */
+    public static final Color CODE_BG = new Color(0x1E1F22);
+    public static final Color CODE_LINE = new Color(0x2B2D30);
+    public static final Color CODE_TEXT = new Color(0xBFCADB);
+    public static final Color CODE_COMMENT = new Color(0x7A7E85);
+    public static final Color CODE_KEYWORD = new Color(0xCF8E6D);
+    public static final Color CODE_STRING = new Color(0x6AAB73);
+    public static final Color CODE_NUMBER = new Color(0x2AACB8);
+    public static final Color CODE_FUNC = new Color(0x56A8F5);
+    public static final Color CODE_PREPROC = new Color(0xC77DBB);
+    public static final Color CODE_GUTTER = new Color(0x606366);
+
     public static final Font SANS = resolveUiFont();
     public static final Font MONO = new Font(Font.MONOSPACED, Font.PLAIN, 12);
     /** 代码用等宽字体：优先系统里的编程字体（Consolas / Cascadia Mono 等）。 */
@@ -342,40 +354,52 @@ public final class Ui {
     }
 
     /**
-     * 代码块：英文/符号用编程等宽字体（Consolas 等），中文用黑体，
-     * 逐字挑字形，避免物理字体缺中文字形时出现方块。
+     * 代码块：CLion 风格的深色编辑器面板——左侧行号栏 + CLion Dark 语法高亮，
+     * 英文/符号用编程等宽字体（Consolas 等），中文自动切黑体，逐字挑字形，避免方块。
      */
     public static class CodeArea extends javax.swing.JTextPane implements Sizable {
         private static final float TEXT_SIZE = 12.5f;
+        private static final int T_PLAIN = 0;
+        private static final int T_COMMENT = 1;
+        private static final int T_KEYWORD = 2;
+        private static final int T_STRING = 3;
+        private static final int T_NUMBER = 4;
+        private static final int T_FUNC = 5;
+        private static final int T_PREPROC = 6;
+        private static final java.util.Set<String> KEYWORDS = java.util.Set.of(
+                "auto", "break", "case", "char", "const", "continue", "default", "do", "double", "else",
+                "enum", "extern", "float", "for", "goto", "if", "inline", "int", "long", "register",
+                "restrict", "return", "short", "signed", "sizeof", "static", "struct", "switch",
+                "typedef", "union", "unsigned", "void", "volatile", "while", "bool", "true", "false");
+        private final java.util.Map<String, javax.swing.text.SimpleAttributeSet> attrCache =
+                new java.util.HashMap<>();
         private int fixedWidth = 320;
+        private int gutterWidth;
+        private Font gutterFont;
+        private Font codeFont;
 
-        public CodeArea(String text, Color color) {
-            setOpaque(false);
+        public CodeArea(String text) {
+            setOpaque(true);
+            setBackground(CODE_BG);
             setEditable(false);
             setFocusable(false);
-            setBorder(BorderFactory.createEmptyBorder());
-            setFont(CODE);
-            setMargin(new Insets(0, 0, 0, 0));
+            setBorder(BorderFactory.createEmptyBorder(8, 0, 10, 10));
+            setSelectionColor(alpha(ACCENT, 0.40f));
+            setSelectedTextColor(TEXT);
             Font latinFont = CODE.deriveFont(Font.PLAIN, TEXT_SIZE * SCALE);
             Font cjkFont = SANS.deriveFont(Font.PLAIN, TEXT_SIZE * SCALE);
             Font fallbackFont = MONO.deriveFont(Font.PLAIN, TEXT_SIZE * SCALE);
-            javax.swing.text.SimpleAttributeSet latin = attributes(latinFont, color);
-            javax.swing.text.SimpleAttributeSet cjk = attributes(cjkFont, color);
-            javax.swing.text.SimpleAttributeSet fallback = attributes(fallbackFont, color);
+            codeFont = latinFont;
+            int[] classes = classify(text);
             javax.swing.text.StyledDocument doc = getStyledDocument();
             StringBuilder run = new StringBuilder();
             javax.swing.text.SimpleAttributeSet runAttrs = null;
             try {
                 for (int i = 0; i < text.length(); i++) {
                     char ch = text.charAt(i);
-                    javax.swing.text.SimpleAttributeSet attrs;
-                    if (latinFont.canDisplay(ch)) {
-                        attrs = latin;
-                    } else if (cjkFont.canDisplay(ch)) {
-                        attrs = cjk;
-                    } else {
-                        attrs = fallback;
-                    }
+                    Font font = latinFont.canDisplay(ch) ? latinFont
+                            : (cjkFont.canDisplay(ch) ? cjkFont : fallbackFont);
+                    javax.swing.text.SimpleAttributeSet attrs = attribute(font, colorOf(classes[i]));
                     if (runAttrs != null && attrs != runAttrs) {
                         doc.insertString(doc.getLength(), run.toString(), runAttrs);
                         run.setLength(0);
@@ -389,14 +413,187 @@ public final class Ui {
             } catch (javax.swing.text.BadLocationException ignored) {
                 // 追加到文档末尾不会越界
             }
+            int lines = 1;
+            for (int i = 0; i < text.length(); i++) {
+                if (text.charAt(i) == '\n') {
+                    lines++;
+                }
+            }
+            gutterFont = CODE.deriveFont(Font.PLAIN, Math.max(9f, TEXT_SIZE * SCALE - 1f));
+            gutterWidth = getFontMetrics(gutterFont).stringWidth(String.valueOf(lines)) + (int) (16 * SCALE);
+            // margin 在部分 LAF 下不生效，改用段落左缩进给行号栏留位置
+            javax.swing.text.SimpleAttributeSet para = new javax.swing.text.SimpleAttributeSet();
+            javax.swing.text.StyleConstants.setLeftIndent(para, gutterWidth);
+            doc.setParagraphAttributes(0, doc.getLength(), para, false);
         }
 
-        private static javax.swing.text.SimpleAttributeSet attributes(Font font, Color color) {
+        private javax.swing.text.SimpleAttributeSet attribute(Font font, Color color) {
+            String key = font.getFamily() + "|" + font.getSize() + "|" + color.getRGB();
+            javax.swing.text.SimpleAttributeSet cached = attrCache.get(key);
+            if (cached != null) {
+                return cached;
+            }
             javax.swing.text.SimpleAttributeSet a = new javax.swing.text.SimpleAttributeSet();
             javax.swing.text.StyleConstants.setFontFamily(a, font.getFamily());
             javax.swing.text.StyleConstants.setFontSize(a, font.getSize());
             javax.swing.text.StyleConstants.setForeground(a, color);
+            attrCache.put(key, a);
             return a;
+        }
+
+        private static Color colorOf(int token) {
+            switch (token) {
+                case T_COMMENT:
+                    return CODE_COMMENT;
+                case T_KEYWORD:
+                    return CODE_KEYWORD;
+                case T_STRING:
+                    return CODE_STRING;
+                case T_NUMBER:
+                    return CODE_NUMBER;
+                case T_FUNC:
+                    return CODE_FUNC;
+                case T_PREPROC:
+                    return CODE_PREPROC;
+                default:
+                    return CODE_TEXT;
+            }
+        }
+
+        /** 简单 C 词法扫描：注释、字符串、数字、关键字、函数调用、预处理指令。 */
+        private static int[] classify(String text) {
+            int n = text.length();
+            int[] classes = new int[n];
+            int i = 0;
+            boolean lineStart = true;
+            while (i < n) {
+                char c = text.charAt(i);
+                if (c == '\n') {
+                    lineStart = true;
+                    i++;
+                    continue;
+                }
+                if (c == ' ' || c == '\t' || c == '\r') {
+                    i++;
+                    continue;
+                }
+                if (lineStart && c == '#') {
+                    int j = i + 1;
+                    while (j < n && (Character.isLetterOrDigit(text.charAt(j)) || text.charAt(j) == '_')) {
+                        j++;
+                    }
+                    fill(classes, i, j, T_PREPROC);
+                    i = j;
+                    lineStart = false;
+                    continue;
+                }
+                lineStart = false;
+                if (c == '/' && i + 1 < n && text.charAt(i + 1) == '/') {
+                    int j = text.indexOf('\n', i);
+                    j = j < 0 ? n : j;
+                    fill(classes, i, j, T_COMMENT);
+                    i = j;
+                    continue;
+                }
+                if (c == '/' && i + 1 < n && text.charAt(i + 1) == '*') {
+                    int j = text.indexOf("*/", i + 2);
+                    j = j < 0 ? n : j + 2;
+                    fill(classes, i, j, T_COMMENT);
+                    i = j;
+                    continue;
+                }
+                if (c == '"' || c == '\'') {
+                    int j = i + 1;
+                    while (j < n) {
+                        char d = text.charAt(j);
+                        if (d == '\\') {
+                            j += 2;
+                            continue;
+                        }
+                        if (d == c || d == '\n') {
+                            j++;
+                            break;
+                        }
+                        j++;
+                    }
+                    fill(classes, i, Math.min(j, n), T_STRING);
+                    i = Math.min(j, n);
+                    continue;
+                }
+                if (Character.isDigit(c)) {
+                    int j = i + 1;
+                    while (j < n) {
+                        char d = text.charAt(j);
+                        if (Character.isLetterOrDigit(d) || d == '.') {
+                            j++;
+                        } else {
+                            break;
+                        }
+                    }
+                    fill(classes, i, j, T_NUMBER);
+                    i = j;
+                    continue;
+                }
+                if (Character.isLetter(c) || c == '_') {
+                    int j = i + 1;
+                    while (j < n && (Character.isLetterOrDigit(text.charAt(j)) || text.charAt(j) == '_')) {
+                        j++;
+                    }
+                    int cls = KEYWORDS.contains(text.substring(i, j)) ? T_KEYWORD : T_PLAIN;
+                    if (cls == T_PLAIN) {
+                        int k = j;
+                        while (k < n && (text.charAt(k) == ' ' || text.charAt(k) == '\t')) {
+                            k++;
+                        }
+                        if (k < n && text.charAt(k) == '(') {
+                            cls = T_FUNC;
+                        }
+                    }
+                    fill(classes, i, j, cls);
+                    i = j;
+                    continue;
+                }
+                i++;
+            }
+            return classes;
+        }
+
+        private static void fill(int[] classes, int from, int to, int cls) {
+            for (int k = Math.max(0, from); k < Math.min(classes.length, to); k++) {
+                classes[k] = cls;
+            }
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            super.paintComponent(g);
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setFont(gutterFont);
+            FontMetrics fm = g2.getFontMetrics();
+            FontMetrics codeFm = getFontMetrics(codeFont);
+            javax.swing.text.Element root = getStyledDocument().getDefaultRootElement();
+            g2.setColor(CODE_GUTTER);
+            for (int i = 0; i < root.getElementCount(); i++) {
+                java.awt.geom.Rectangle2D r;
+                try {
+                    r = modelToView2D(root.getElement(i).getStartOffset());
+                } catch (Exception ignored) {
+                    continue;
+                }
+                if (r == null) {
+                    continue;
+                }
+                String num = String.valueOf(i + 1);
+                int x = gutterWidth - (int) (8 * SCALE) - fm.stringWidth(num);
+                int y = (int) Math.round(r.getY()) + codeFm.getAscent();
+                g2.drawString(num, x, y);
+            }
+            g2.setColor(CODE_LINE);
+            int sep = gutterWidth - (int) (4 * SCALE);
+            g2.drawLine(sep, 6, sep, Math.max(6, getHeight() - 8));
+            g2.dispose();
         }
 
         /** 由父容器在宽度变化时调用。 */
