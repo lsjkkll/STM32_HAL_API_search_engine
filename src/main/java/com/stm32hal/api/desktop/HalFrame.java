@@ -1043,7 +1043,8 @@ public final class HalFrame extends JFrame {
     private JComponent noteRow(String note) {
         JPanel row = new JPanel(new BorderLayout(8, 0));
         row.setOpaque(false);
-        JLabel bullet = Ui.label("•", Ui.sans(14f, Font.BOLD), Ui.CYAN);
+        // 黑体没有 “•”（U+2022）字形，用实心圆点代替，避免出现方块。
+        JLabel bullet = Ui.label("●", Ui.sans(9f, Font.BOLD), Ui.CYAN);
         bullet.setVerticalAlignment(JLabel.TOP);
         row.add(bullet, BorderLayout.WEST);
         row.add(wrap(note, Ui.sans(12.5f, Font.PLAIN), Ui.alpha(Ui.TEXT, 0.88f), true, 18), BorderLayout.CENTER);
