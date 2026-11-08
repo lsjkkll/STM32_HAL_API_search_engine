@@ -9,7 +9,7 @@
 | 文件 | 说明 |
 |---|---|
 | `HAL-Speed-Lookup-Windows-v*.zip` | Windows 免安装包（内置精简 JRE），解压后双击 `HAL-Speed-Lookup.exe`，无需另装 Java |
-| `HAL-Speed-Lookup-Desktop-*.jar` | 可执行 JAR，需 JDK 17+，`java -jar HAL-Speed-Lookup-Desktop-2.0.0.jar` |
+| `HAL-Speed-Lookup-Desktop-*.jar` | 可执行 JAR，需 JDK 17+，`java -jar HAL-Speed-Lookup-Desktop-2.0.1.jar` |
 
 发布包附带 `SHA256SUMS.txt` 供校验；可用 `HAL-Speed-Lookup.exe --selftest` 确认数据完整（输出 `SELFTEST OK`）。
 
@@ -58,7 +58,7 @@ java -cp build/classes com.stm32hal.api.desktop.Main
 
 ```bash
 bash build.sh
-java -jar dist/HAL-Speed-Lookup-Desktop-2.0.0.jar
+java -jar dist/HAL-Speed-Lookup-Desktop-2.0.1.jar
 ```
 
 IDE（IDEA）打开：把 `src/main/java` 标记为 Sources，`src/main/resources` 标记为 Resources，主类 `com.stm32hal.api.desktop.Main`。
@@ -66,7 +66,7 @@ IDE（IDEA）打开：把 `src/main/java` 标记为 Sources，`src/main/resource
 数据自检：
 
 ```bash
-java -jar dist/HAL-Speed-Lookup-Desktop-2.0.0.jar --selftest
+java -jar dist/HAL-Speed-Lookup-Desktop-2.0.1.jar --selftest
 ```
 
 ## 目录结构
@@ -79,13 +79,13 @@ src/main/java/com/stm32hal/api/desktop/
   Model.java       数据模型与系列元数据
   Json.java        轻量 JSON 解析
   FavStore.java    收藏与系列持久化
-src/main/resources/assets/hal_api.json   接口与章节数据（v2.0.0）
+src/main/resources/assets/hal_api.json   接口与章节数据（v2.0.1）
 build.sh           命令行构建脚本
 ```
 
 ## 数据说明
 
-接口数据版本 v2.0.0，包含 198 条记录、13 个系列、16 个章节：
+接口数据版本 v2.0.1，包含 198 条记录、13 个系列、16 个章节：
 - 15 个通用章节 + 新增 FDCAN 章节（对 C0/G0/G4/H5/H7/L5/U5 显示，C0 仅 C092 型号有 FDCAN1）
 - 每个系列对 16 个关键接口（RCC 时钟、GPIO、DMA、ADC、FLASH、CAN 等）提供「系列差异」说明
 - 10 个关键接口（RCC/GPIO/MspInit/ADC/DMA/FLASH）为每个系列提供专属示例代码

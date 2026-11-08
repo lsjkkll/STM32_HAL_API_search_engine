@@ -14,6 +14,6 @@ find src/main/java -name '*.java' > "$BUILD/sources.txt"
 "$JAVAC_BIN" --release 17 -encoding UTF-8 -d "$BUILD/classes" @"$BUILD/sources.txt"
 cp -R src/main/resources/. "$BUILD/classes/"
 
-"$JAR_BIN" --create --file "$DIST/HAL-Speed-Lookup-Desktop-2.0.0.jar" \
+"$JAR_BIN" --create --file "$DIST/HAL-Speed-Lookup-Desktop-2.0.1.jar" \
     --main-class com.stm32hal.api.desktop.Main -C "$BUILD/classes" .
-echo "built $DIST/HAL-Speed-Lookup-Desktop-2.0.0.jar"
+echo "built $DIST/HAL-Speed-Lookup-Desktop-2.0.1.jar"
