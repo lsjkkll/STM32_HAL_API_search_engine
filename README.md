@@ -9,7 +9,7 @@
 | 文件 | 说明 |
 |---|---|
 | `HAL-Speed-Lookup-Windows-v*.zip` | Windows 免安装包（内置精简 JRE），解压后双击 `HAL-Speed-Lookup.exe`，无需另装 Java |
-| `HAL-Speed-Lookup-Desktop-*.jar` | 可执行 JAR，需 JDK 17+，`java -jar HAL-Speed-Lookup-Desktop-1.0.0.jar` |
+| `HAL-Speed-Lookup-Desktop-*.jar` | 可执行 JAR，需 JDK 17+，`java -jar HAL-Speed-Lookup-Desktop-2.0.0.jar` |
 
 发布包附带 `SHA256SUMS.txt` 供校验；可用 `HAL-Speed-Lookup.exe --selftest` 确认数据完整（输出 `SELFTEST OK`）。
 
@@ -57,7 +57,7 @@ java -cp build/classes com.stm32hal.api.desktop.Main
 
 ```bash
 bash build.sh
-java -jar dist/HAL-Speed-Lookup-Desktop-1.0.0.jar
+java -jar dist/HAL-Speed-Lookup-Desktop-2.0.0.jar
 ```
 
 IDE（IDEA）打开：把 `src/main/java` 标记为 Sources，`src/main/resources` 标记为 Resources，主类 `com.stm32hal.api.desktop.Main`。
@@ -65,7 +65,7 @@ IDE（IDEA）打开：把 `src/main/java` 标记为 Sources，`src/main/resource
 数据自检：
 
 ```bash
-java -jar dist/HAL-Speed-Lookup-Desktop-1.0.0.jar --selftest
+java -jar dist/HAL-Speed-Lookup-Desktop-2.0.0.jar --selftest
 ```
 
 ## 目录结构
