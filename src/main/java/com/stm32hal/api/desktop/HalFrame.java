@@ -1,16 +1,19 @@
 package com.stm32hal.api.desktop;
 
-import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.GridLayout;
 import java.awt.Insets;
+import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.datatransfer.StringSelection;
@@ -18,6 +21,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ComponentAdapter;
 import java.awt.event.ComponentEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseWheelEvent;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
@@ -28,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.swing.AbstractAction;
 import javax.swing.BorderFactory;
@@ -39,7 +44,7 @@ import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JSplitPane;
-import javax.swing.JTextField;
+import javax.swing.JViewport;
 import javax.swing.KeyStroke;
 import javax.swing.ListCellRenderer;
 import javax.swing.ListSelectionModel;
@@ -76,12 +81,17 @@ public final class HalFrame extends JFrame {
     private final Ui.SearchField search = new Ui.SearchField("搜索函数 / 外设 / 关键词");
     private final PillButton clearSearch = new PillButton("✕", true);
     private final JLabel headerCount = Ui.label("", Ui.sans(11f, Font.PLAIN), Ui.MUTED);
-    private final PillButton f1Button = new PillButton("F1", true);
-    private final PillButton f4Button = new PillButton("F4", true);
+    private final JLabel seriesMeta = Ui.label("", Ui.sans(11f, Font.BOLD), Ui.CYAN);
+    private final EllipsisLabel seriesBrief = new EllipsisLabel("", Ui.sans(10.5f, Font.PLAIN), Ui.MUTED);
+    private final JPanel seriesBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
+    private final List<Series> seriesOrder = new ArrayList<>();
+    private final List<PillButton> seriesButtons = new ArrayList<>();
+    private JScrollPane seriesScroll;
     private final PillButton allTab = new PillButton("全部接口", false);
     private final PillButton favTab = new PillButton("我的收藏", false);
     private final JPanel chips = new JPanel();
     private final List<PillButton> chipButtons = new ArrayList<>();
+    private final List<String> chipCategoryIds = new ArrayList<>();
 
     private final DefaultListModel<Api> listModel = new DefaultListModel<>();
     private final JList<Api> list = new JList<>(listModel);
@@ -96,7 +106,8 @@ public final class HalFrame extends JFrame {
         this.data = data;
         this.store = new FavStore();
         this.favorites = new LinkedHashSet<>(store.loadFavorites());
-        this.series = Series.fromCode(store.loadSeries());
+        Series saved = data.series(store.loadSeries());
+        this.series = saved != null ? saved : data.defaultSeries();
 
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setMinimumSize(new Dimension((int) (940 * Ui.SCALE), (int) (620 * Ui.SCALE)));
@@ -116,36 +127,74 @@ public final class HalFrame extends JFrame {
     // ---------------------------------------------------------------- 布局
 
     private JComponent buildHeader() {
-        JPanel header = new JPanel(new BorderLayout(12, 0));
+        JPanel header = new JPanel(new BorderLayout(0, 8));
         header.setBackground(Ui.INK);
         header.setBorder(new EmptyBorder((int) (14 * Ui.SCALE), (int) (18 * Ui.SCALE),
                 (int) (10 * Ui.SCALE), (int) (18 * Ui.SCALE)));
 
-        header.add(logo(), BorderLayout.WEST);
+        JPanel top = new JPanel(new BorderLayout(12, 0));
+        top.setOpaque(false);
+        top.add(logo(), BorderLayout.WEST);
 
-        JPanel titles = new JPanel(new BorderLayout());
-        titles.setOpaque(false);
-        titles.add(Ui.label("HAL 速查", Ui.sans(21f, Font.BOLD), Ui.TEXT), BorderLayout.NORTH);
-        JPanel sub = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        sub.setOpaque(false);
-        sub.add(headerCount);
-        titles.add(sub, BorderLayout.CENTER);
-        header.add(titles, BorderLayout.CENTER);
+        JPanel titles = Ui.vbox();
+        JLabel title = Ui.label("HAL 速查", Ui.sans(21f, Font.BOLD), Ui.TEXT);
+        Ui.fullWidth(title);
+        titles.add(title);
+        titles.add(javax.swing.Box.createVerticalStrut((int) (3 * Ui.SCALE)));
 
-        RoundPanel toggle = new RoundPanel(Ui.SURFACE1, Ui.STROKE, 12);
-        toggle.setLayout(new FlowLayout(FlowLayout.LEFT, 3, 3));
-        f1Button.setArc(8);
-        f4Button.setArc(8);
-        f1Button.addActionListener(e -> switchSeries(Series.F1));
-        f4Button.addActionListener(e -> switchSeries(Series.F4));
-        toggle.add(f1Button);
-        toggle.add(f4Button);
-        JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        right.setOpaque(false);
-        right.add(toggle);
-        header.add(right, BorderLayout.EAST);
+        JPanel metaRow = new JPanel(new BorderLayout(12, 0));
+        metaRow.setOpaque(false);
+        metaRow.add(seriesMeta, BorderLayout.WEST);
+        metaRow.add(headerCount, BorderLayout.EAST);
+        Ui.fullWidth(metaRow);
+        titles.add(metaRow);
+        titles.add(javax.swing.Box.createVerticalStrut((int) (2 * Ui.SCALE)));
+
+        JPanel briefRow = new JPanel(new BorderLayout());
+        briefRow.setOpaque(false);
+        briefRow.add(seriesBrief, BorderLayout.CENTER);
+        Ui.fullWidth(briefRow);
+        titles.add(briefRow);
+
+        top.add(titles, BorderLayout.CENTER);
+        header.add(top, BorderLayout.NORTH);
+        header.add(buildSeriesStrip(), BorderLayout.CENTER);
+
         updateSeriesButtons();
+        updateSeriesInfo();
         return header;
+    }
+
+    /** 系列选择条：横向滚动，避免 13 个系列在窄窗口溢出。 */
+    private JComponent buildSeriesStrip() {
+        JPanel strip = new JPanel(new BorderLayout(10, 0));
+        strip.setOpaque(false);
+        strip.add(chipLabel("系列"), BorderLayout.WEST);
+
+        seriesBar.setOpaque(false);
+        for (Series s : data.series()) {
+            PillButton button = new PillButton(seriesButtonText(s), false);
+            button.setArc(8);
+            button.setFont(Ui.sans(10.5f, Font.BOLD));
+            button.setToolTipText(seriesMetaText(s));
+            button.addActionListener(e -> switchSeries(s));
+            button.addMouseWheelListener(this::scrollSeriesStrip);
+            seriesOrder.add(s);
+            seriesButtons.add(button);
+            seriesBar.add(button);
+        }
+        seriesBar.addMouseWheelListener(this::scrollSeriesStrip);
+
+        seriesScroll = new JScrollPane(seriesBar, JScrollPane.VERTICAL_SCROLLBAR_NEVER,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        seriesScroll.setBorder(BorderFactory.createEmptyBorder());
+        seriesScroll.setBackground(Ui.INK);
+        seriesScroll.getViewport().setBackground(Ui.INK);
+        int height = Math.max((int) (28 * Ui.SCALE),
+                seriesBar.getPreferredSize().height + (int) (2 * Ui.SCALE));
+        seriesScroll.setPreferredSize(new Dimension((int) (160 * Ui.SCALE), height));
+        strip.add(seriesScroll, BorderLayout.CENTER);
+        return strip;
     }
 
     private JComponent logo() {
@@ -316,32 +365,95 @@ public final class HalFrame extends JFrame {
     }
 
     private void switchSeries(Series next) {
-        if (next == series) {
+        if (next == null || next.equals(series)) {
             return;
         }
         series = next;
-        categoryId = null;
-        commonMode = false;
-        categoryMode = false;
+        // 当前章节在新系列不可用时回到“全部”，可用时保留。
+        if (categoryId != null && (!data.categoryAvailable(categoryId, series)
+                || data.countIn(series, categoryId) == 0)) {
+            categoryId = null;
+            categoryMode = false;
+        }
         updateSeriesButtons();
         store.save(favorites, series.code);
         refreshAll();
     }
 
     private void updateSeriesButtons() {
-        f1Button.setActive(series == Series.F1);
-        f4Button.setActive(series == Series.F4);
+        for (int i = 0; i < seriesButtons.size(); i++) {
+            Series s = seriesOrder.get(i);
+            PillButton button = seriesButtons.get(i);
+            boolean active = s.code.equals(series.code);
+            button.setActive(active);
+            if (active && seriesScroll != null) {
+                SwingUtilities.invokeLater(() ->
+                        seriesScroll.getViewport().scrollRectToVisible(button.getBounds()));
+            }
+        }
+    }
+
+    /** 滚轮横向滚动系列条（系列条本身隐藏了滚动条）。 */
+    private void scrollSeriesStrip(MouseWheelEvent e) {
+        if (e.isConsumed() || seriesScroll == null) {
+            return;
+        }
+        JViewport viewport = seriesScroll.getViewport();
+        Point pos = viewport.getViewPosition();
+        int max = Math.max(0, seriesBar.getWidth() - viewport.getWidth());
+        int x = Math.max(0, Math.min(max,
+                pos.x + e.getUnitsToScroll() * (int) (40 * Ui.SCALE)));
+        viewport.setViewPosition(new Point(x, pos.y));
+        e.consume();
     }
 
     private void refreshAll() {
         rebuildChips();
         refreshList();
-        headerCount.setText("STM32 HAL API 离线手册 · " + data.visible(series).size() + " 个接口");
+        updateSeriesInfo();
+    }
+
+    private void updateSeriesInfo() {
+        seriesMeta.setText(seriesMetaText(series));
+        String brief = series.brief == null ? "" : series.brief.trim();
+        seriesBrief.setText(brief);
+        seriesBrief.setToolTipText(brief.isEmpty() ? null : brief);
+        headerCount.setText(data.visible(series).size() + " 个接口 · "
+                + data.categories(series).size() + " 个章节");
+    }
+
+    private static String seriesButtonText(Series s) {
+        String label = s.label == null ? "" : s.label.trim();
+        return label.isEmpty() ? s.code.toUpperCase() : label;
+    }
+
+    private static String seriesMetaText(Series s) {
+        List<String> parts = new ArrayList<>();
+        parts.add(s.family == null || s.family.isBlank() ? seriesName(s) : s.family.trim());
+        if (s.core != null && !s.core.isBlank()) {
+            parts.add(s.core.trim());
+        }
+        if (s.maxFreq > 0) {
+            parts.add(s.maxFreq + " MHz");
+        }
+        return String.join(" · ", parts);
+    }
+
+    private static String seriesName(Series s) {
+        if (s == null) {
+            return "STM32";
+        }
+        String label = s.label == null ? "" : s.label.trim();
+        if (label.isEmpty()) {
+            label = s.code == null ? "" : s.code.toUpperCase();
+        }
+        return label.startsWith("STM32") ? label : "STM32" + label;
     }
 
     private void rebuildChips() {
         chips.removeAll();
         chipButtons.clear();
+        chipCategoryIds.clear();
         chips.setAlignmentX(0f);
         chips.add(chipLabel("按外设筛选"), BorderLayout.NORTH);
 
@@ -365,9 +477,10 @@ public final class HalFrame extends JFrame {
             categoryMode = false;
             refreshList();
         });
-        for (Category c : data.categories) {
+        for (Category c : data.categories(series)) {
             int n = data.countIn(series, c.id);
             if (n > 0) {
+                chipCategoryIds.add(c.id);
                 addChip(grid, c.code, n, () -> {
                     categoryId = c.id;
                     commonMode = false;
@@ -378,6 +491,8 @@ public final class HalFrame extends JFrame {
         }
         chips.add(grid, BorderLayout.CENTER);
         chips.setMaximumSize(new Dimension(Integer.MAX_VALUE, chips.getPreferredSize().height));
+        chips.revalidate();
+        chips.repaint();
     }
 
     private JComponent chipLabel(String text) {
@@ -412,14 +527,8 @@ public final class HalFrame extends JFrame {
     }
 
     private String chipCategoryAt(int index) {
-        List<String> ids = new ArrayList<>();
-        for (Category c : data.categories) {
-            if (data.countIn(series, c.id) > 0) {
-                ids.add(c.id);
-            }
-        }
         int pos = index - 2;
-        return pos >= 0 && pos < ids.size() ? ids.get(pos) : "";
+        return pos >= 0 && pos < chipCategoryIds.size() ? chipCategoryIds.get(pos) : "";
     }
 
     private List<Api> computeItems() {
@@ -482,10 +591,25 @@ public final class HalFrame extends JFrame {
         if (items.isEmpty()) {
             list.clearSelection();
             current = null;
-            showEmpty(!query.isBlank() ? "没有匹配的接口" : favMode ? "还没有收藏" : "该分类下暂无接口",
-                    !query.isBlank()
-                            ? "试试函数名片段或外设关键词，例如 GPIO_Init、DMA、PWM、空闲中断。"
-                            : favMode ? "在接口详情页点右上角星标即可收藏，方便随时回查。" : "切换 F1 / F4 系列或选择其他分类。");
+            String title;
+            String desc;
+            if (!query.isBlank()) {
+                title = "没有匹配的接口";
+                desc = "试试函数名片段或外设关键词，例如 GPIO_Init、DMA、PWM、空闲中断。";
+            } else if (favMode) {
+                title = "还没有收藏";
+                desc = "在接口详情页点右上角星标即可收藏，方便随时回查。";
+            } else if (categoryId != null) {
+                title = "该分类下暂无接口";
+                desc = "切换顶部系列或选择其他章节，也可以直接搜索接口名。";
+            } else if (commonMode) {
+                title = "该系列暂无常用接口";
+                desc = "切换顶部系列或选择其他章节，也可以直接搜索接口名。";
+            } else {
+                title = "该系列暂无接口";
+                desc = "切换顶部系列或选择其他章节，也可以直接搜索接口名。";
+            }
+            showEmpty(title, desc);
             return;
         }
 
@@ -521,7 +645,7 @@ public final class HalFrame extends JFrame {
         JPanel titles = new JPanel(new BorderLayout());
         titles.setOpaque(false);
         titles.add(Ui.label(c.name + " 章节总览", Ui.sans(17f, Font.BOLD), Ui.TEXT), BorderLayout.NORTH);
-        titles.add(Ui.label("STM32" + series.label + " · " + c.code + " · " + n + " 个接口",
+        titles.add(Ui.label(seriesName(series) + " · " + c.code + " · " + n + " 个接口",
                 Ui.sans(10.5f, Font.PLAIN), Ui.MUTED), BorderLayout.CENTER);
         head.add(titles, BorderLayout.CENTER);
         addDetail(head, 0, 6);
@@ -530,38 +654,43 @@ public final class HalFrame extends JFrame {
                 Ui.sans(13f, Font.PLAIN), Ui.TEXT, true, 0), 0, 8);
 
         JPanel tags = Ui.flow();
-        tags.add(tag("STM32" + series.label, Ui.CYAN, true));
+        tags.add(tag(seriesName(series), Ui.CYAN, true));
         tags.add(tag(c.code, Ui.ACCENT, true));
         tags.add(tag("综合示例", Ui.MUTED, false));
         addDetail(tags, 0, 8);
 
-        if (!c.cubemx.isEmpty()) {
-            addDetail(section("CubeMX 配置", c.cubemx.size() + " 步"), 8, 6);
-            for (int i = 0; i < c.cubemx.size(); i++) {
-                addDetail(guideRow(i + 1, c.cubemx.get(i)), 0, 7);
+        List<String> cubemx = c.cubemxFor(series);
+        if (!cubemx.isEmpty()) {
+            addDetail(section("CubeMX 配置", cubemx.size() + " 步"), 8, 6);
+            for (int i = 0; i < cubemx.size(); i++) {
+                addDetail(guideRow(i + 1, cubemx.get(i)), 0, 7);
             }
         }
 
-        if (!c.guide.isEmpty()) {
-            addDetail(section("使用步骤", c.guide.size() + " 步"), 8, 6);
-            for (int i = 0; i < c.guide.size(); i++) {
-                addDetail(guideRow(i + 1, c.guide.get(i)), 0, 7);
+        List<String> guide = c.guideFor(series);
+        if (!guide.isEmpty()) {
+            addDetail(section("使用步骤", guide.size() + " 步"), 8, 6);
+            for (int i = 0; i < guide.size(); i++) {
+                addDetail(guideRow(i + 1, guide.get(i)), 0, 7);
             }
         }
 
-        if (!c.demo.isBlank()) {
+        String demo = c.demoFor(series);
+        if (!demo.isBlank()) {
             addDetail(section("综合示例程序", "DEMO"), 8, 6);
-            String title = c.demoTitle.isBlank() ? c.code + " 综合示例" : c.demoTitle;
-            addDetail(codeBlock(title, c.demoFor(series)), 0, 8);
+            String demoTitle = c.demoTitleFor(series);
+            String title = demoTitle == null || demoTitle.isBlank() ? c.code + " 综合示例" : demoTitle;
+            addDetail(codeBlock(title, demo), 0, 8);
         }
 
-        if (!c.note.isBlank()) {
+        String note = c.noteFor(series);
+        if (note != null && !note.isBlank()) {
             addDetail(section("接线与系列差异", "NOTE"), 6, 6);
             RoundPanel noteCard = new RoundPanel(Ui.blend(Ui.INK, Ui.ACCENT, 0.12f),
                     Ui.alpha(Ui.ACCENT, 0.35f), 12);
             noteCard.setLayout(new BorderLayout());
             noteCard.setBorder(new EmptyBorder(11, 12, 11, 12));
-            noteCard.add(wrap(c.note, Ui.sans(12.5f, Font.PLAIN), Ui.alpha(Ui.TEXT, 0.92f), true, 24));
+            noteCard.add(wrap(note, Ui.sans(12.5f, Font.PLAIN), Ui.alpha(Ui.TEXT, 0.92f), true, 24));
             addDetail(noteCard, 0, 8);
         }
 
@@ -586,6 +715,8 @@ public final class HalFrame extends JFrame {
             }
             addDetail(gridApis, 0, 10);
         }
+
+        addSeriesFeatures();
 
         detail.revalidate();
         detail.repaint();
@@ -635,6 +766,37 @@ public final class HalFrame extends JFrame {
         detail.repaint();
     }
 
+    /** 在分类总览/接口详情底部展示当前系列的架构特征。 */
+    private void addSeriesFeatures() {
+        if (series.features.isEmpty()) {
+            return;
+        }
+        addDetail(section("系列信息", seriesName(series)), 8, 6);
+        RoundPanel card = new RoundPanel(Ui.SURFACE1, Ui.STROKE, 12);
+        card.setLayout(new javax.swing.BoxLayout(card, javax.swing.BoxLayout.Y_AXIS));
+        card.setBorder(new EmptyBorder(10, 12, 10, 12));
+
+        int i = 0;
+        for (Map.Entry<String, String> feature : series.features.entrySet()) {
+            JPanel row = new JPanel(new BorderLayout(10, 0));
+            row.setOpaque(false);
+            row.setAlignmentX(0f);
+            JLabel key = Ui.label(feature.getKey(), Ui.mono(10f, Font.BOLD), Ui.CYAN);
+            key.setPreferredSize(new Dimension((int) (84 * Ui.SCALE), (int) (16 * Ui.SCALE)));
+            row.add(key, BorderLayout.WEST);
+            EllipsisLabel value = new EllipsisLabel(feature.getValue(),
+                    Ui.sans(10.5f, Font.PLAIN), Ui.MUTED);
+            value.setToolTipText(feature.getValue());
+            row.add(value, BorderLayout.CENTER);
+            row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+            card.add(row);
+            if (++i < series.features.size()) {
+                card.add(javax.swing.Box.createVerticalStrut((int) (3 * Ui.SCALE)));
+            }
+        }
+        addDetail(card, 0, 8);
+    }
+
     // ---------------------------------------------------------------- 详情
 
     private void showDetail(Api api) {
@@ -650,7 +812,7 @@ public final class HalFrame extends JFrame {
         addDetail(brief, 0, 10);
 
         JPanel tags = Ui.flow();
-        tags.add(tag("STM32" + series.label, Ui.CYAN, true));
+        tags.add(tag(seriesName(series), Ui.CYAN, true));
         Category cat = data.categoryOf(api.cat);
         if (cat != null) {
             tags.add(tag(cat.name, Ui.ACCENT, false));
@@ -683,13 +845,13 @@ public final class HalFrame extends JFrame {
 
         String example = api.exampleFor(series);
         if (!example.isBlank()) {
-            addDetail(section("代码示例", series.label + " · CODE"), 6, 6);
-            addDetail(codeBlock(series.label + " 示例", example), 0, 8);
+            addDetail(section("代码示例", seriesName(series) + " · CODE"), 6, 6);
+            addDetail(codeBlock(seriesName(series) + " 示例", example), 0, 8);
         }
 
         String diff = api.diffFor(series);
         if (!diff.isBlank()) {
-            addDetail(section(series.label + " 系列差异", "DIFF"), 6, 6);
+            addDetail(section(seriesName(series) + " 系列差异", "DIFF"), 6, 6);
             RoundPanel diffCard = new RoundPanel(Ui.blend(Ui.INK, Ui.ACCENT, 0.12f),
                     Ui.alpha(Ui.ACCENT, 0.35f), 12);
             diffCard.setLayout(new BorderLayout());
@@ -717,6 +879,8 @@ public final class HalFrame extends JFrame {
             }
             addDetail(row, 0, 10);
         }
+
+        addSeriesFeatures();
 
         detail.revalidate();
         detail.repaint();
@@ -933,6 +1097,59 @@ public final class HalFrame extends JFrame {
     }
 
     // ---------------------------------------------------------------- 列表渲染
+
+    /** 单行标签：宽度不足时绘制省略号，不改写原始文本。 */
+    @SuppressWarnings("serial")
+    private static final class EllipsisLabel extends JLabel {
+        EllipsisLabel(String text, Font font, Color color) {
+            super(text);
+            setFont(font);
+            setForeground(color);
+            setAlignmentX(0f);
+        }
+
+        @Override
+        protected void paintComponent(Graphics g) {
+            String text = getText();
+            if (text == null || text.isEmpty()) {
+                super.paintComponent(g);
+                return;
+            }
+            FontMetrics fm = g.getFontMetrics(getFont());
+            Insets insets = getInsets();
+            int available = getWidth() - insets.left - insets.right;
+            if (available <= 0) {
+                return;
+            }
+            if (fm.stringWidth(text) <= available) {
+                super.paintComponent(g);
+                return;
+            }
+            int max = available - fm.stringWidth("…");
+            if (max <= 0) {
+                return;
+            }
+            int low = 0;
+            int high = text.length();
+            while (low < high) {
+                int mid = (low + high + 1) >>> 1;
+                if (fm.stringWidth(text.substring(0, mid)) <= max) {
+                    low = mid;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
+                    RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+            g2.setColor(getForeground());
+            g2.setFont(getFont());
+            int y = insets.top + (getHeight() - insets.top - insets.bottom - fm.getHeight()) / 2
+                    + fm.getAscent();
+            g2.drawString(text.substring(0, low) + "…", insets.left, y);
+            g2.dispose();
+        }
+    }
 
     private final class ApiCell extends JPanel implements ListCellRenderer<Api> {
         private final JLabel name = Ui.label("", Ui.mono(12.5f, Font.BOLD), Ui.TEXT);

@@ -39,7 +39,7 @@ public final class FavStore {
     }
 
     public String loadSeries() {
-        return prefs.getProperty("series", Model.Series.F4.code);
+        return prefs.getProperty("series", Model.DEFAULT_SERIES_CODE);
     }
 
     public void save(Set<String> favorites, String seriesCode) {
