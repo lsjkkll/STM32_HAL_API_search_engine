@@ -1052,7 +1052,7 @@ public final class HalFrame extends JFrame {
     }
 
     private JComponent codeBlock(String title, String code) {
-        RoundPanel card = new RoundPanel(Ui.CODE_BG, Ui.CODE_LINE, 10);
+        RoundPanel card = new RoundPanel(Ui.CODE_BG, Ui.CODE_BORDER, 10);
         card.setLayout(new BorderLayout());
         card.setBorder(new EmptyBorder(8, 10, 0, 8));
 

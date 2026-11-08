@@ -42,6 +42,7 @@ public final class Ui {
     /** 代码面板配色对齐 CLion（新版 Dark / Darcula 主题）。 */
     public static final Color CODE_BG = new Color(0x1E1F22);
     public static final Color CODE_LINE = new Color(0x2B2D30);
+    public static final Color CODE_BORDER = new Color(0x393B40);
     public static final Color CODE_TEXT = new Color(0xBFCADB);
     public static final Color CODE_COMMENT = new Color(0x7A7E85);
     public static final Color CODE_KEYWORD = new Color(0xCF8E6D);
