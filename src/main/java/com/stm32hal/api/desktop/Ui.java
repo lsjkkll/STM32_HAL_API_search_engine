@@ -41,6 +41,8 @@ public final class Ui {
 
     public static final Font SANS = resolveUiFont();
     public static final Font MONO = new Font(Font.MONOSPACED, Font.PLAIN, 12);
+    /** 代码用等宽字体：优先系统里的编程字体（Consolas / Cascadia Mono 等）。 */
+    public static final Font CODE = resolveCodeFont();
 
     /** 按屏幕逻辑分辨率放大字号，2K（2560）屏幕约 1.4 倍。 */
     public static final float SCALE = detectScale();
@@ -90,7 +92,8 @@ public final class Ui {
                 return probe;
             }
         }
-        Font loaded = loadUiFontFile();
+        Font loaded = loadFontFile(13f, new String[]{"simhei.ttf", "Deng.ttf"},
+                "/System/Library/Fonts/PingFang.ttc");
         if (loaded != null) {
             return loaded;
         }
@@ -107,29 +110,49 @@ public final class Ui {
         }
     }
 
-    /** 名称探测全部失败时，直接读系统中文字体文件（Windows 自带黑体）。 */
-    private static Font loadUiFontFile() {
+    /** 名称探测全部失败时，直接读系统里的字体文件兜底。 */
+    private static Font loadFontFile(float size, String[] windowsNames, String... otherPaths) {
         String windir = System.getenv("WINDIR");
-        String[] files = {
-                windir == null ? "" : windir + "\\Fonts\\simhei.ttf",
-                windir == null ? "" : windir + "\\Fonts\\Deng.ttf",
-                "/System/Library/Fonts/PingFang.ttc"
-        };
-        for (String path : files) {
-            if (path.isEmpty()) {
-                continue;
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        if (windir != null) {
+            for (String name : windowsNames) {
+                paths.add(windir + "\\Fonts\\" + name);
             }
+        }
+        paths.addAll(java.util.Arrays.asList(otherPaths));
+        for (String path : paths) {
             try {
                 java.io.File file = new java.io.File(path);
                 if (!file.isFile()) {
                     continue;
                 }
-                return Font.createFont(Font.TRUETYPE_FONT, file).deriveFont(Font.PLAIN, 13f);
+                return Font.createFont(Font.TRUETYPE_FONT, file).deriveFont(Font.PLAIN, size);
             } catch (Exception ignored) {
                 // 当前文件不可用时继续尝试下一个
             }
         }
         return null;
+    }
+
+    /** 代码字体：优先 Consolas / Cascadia Mono 这类编程等宽字体，缺中文字形时由 CodeArea 交给黑体。 */
+    private static Font resolveCodeFont() {
+        String[] candidates = {
+                "Consolas", "Cascadia Mono", "Cascadia Code", "JetBrains Mono",
+                "Fira Code", "Source Code Pro", "DejaVu Sans Mono", "Menlo"
+        };
+        java.util.Set<String> available = availableFamilies();
+        for (String name : candidates) {
+            if (available.contains(name)) {
+                return new Font(name, Font.PLAIN, 12);
+            }
+            Font probe = new Font(name, Font.PLAIN, 12);
+            if (!Font.DIALOG.equals(probe.getFamily())) {
+                return probe;
+            }
+        }
+        Font loaded = loadFontFile(12f, new String[]{"consola.ttf", "CascadiaMono.ttf"},
+                "/System/Library/Fonts/Menlo.ttc");
+        return loaded != null ? loaded : new Font(Font.MONOSPACED, Font.PLAIN, 12);
     }
 
     /** 界面文字统一加粗（黑体无粗体字面，由 Java 合成加粗），并按屏幕比例放大。 */
@@ -271,8 +294,13 @@ public final class Ui {
         }
     }
 
+    /** 由父容器按可用宽度布局的文本块。 */
+    public interface Sizable {
+        void setFixedWidth(int width);
+    }
+
     /** 可随可用宽度自动换行的多行文本。 */
-    public static class WrapArea extends JTextArea {
+    public static class WrapArea extends JTextArea implements Sizable {
         private int fixedWidth = 320;
 
         public WrapArea(String text, Font font, Color color, boolean wrapWords) {
@@ -288,6 +316,91 @@ public final class Ui {
         }
 
         /** 由父容器在宽度变化时调用。 */
+        public void setFixedWidth(int width) {
+            if (width > 0 && width != fixedWidth) {
+                fixedWidth = width;
+                revalidate();
+                repaint();
+            }
+        }
+
+        public int getFixedWidth() {
+            return fixedWidth;
+        }
+
+        @Override
+        public Dimension getPreferredSize() {
+            setSize(fixedWidth, Integer.MAX_VALUE);
+            Dimension d = super.getPreferredSize();
+            return new Dimension(fixedWidth, d.height);
+        }
+
+        @Override
+        public Dimension getMaximumSize() {
+            return new Dimension(Integer.MAX_VALUE, getPreferredSize().height);
+        }
+    }
+
+    /**
+     * 代码块：英文/符号用编程等宽字体（Consolas 等），中文用黑体，
+     * 逐字挑字形，避免物理字体缺中文字形时出现方块。
+     */
+    public static class CodeArea extends javax.swing.JTextPane implements Sizable {
+        private static final float TEXT_SIZE = 12.5f;
+        private int fixedWidth = 320;
+
+        public CodeArea(String text, Color color) {
+            setOpaque(false);
+            setEditable(false);
+            setFocusable(false);
+            setBorder(BorderFactory.createEmptyBorder());
+            setFont(CODE);
+            setMargin(new Insets(0, 0, 0, 0));
+            Font latinFont = CODE.deriveFont(Font.PLAIN, TEXT_SIZE * SCALE);
+            Font cjkFont = SANS.deriveFont(Font.PLAIN, TEXT_SIZE * SCALE);
+            Font fallbackFont = MONO.deriveFont(Font.PLAIN, TEXT_SIZE * SCALE);
+            javax.swing.text.SimpleAttributeSet latin = attributes(latinFont, color);
+            javax.swing.text.SimpleAttributeSet cjk = attributes(cjkFont, color);
+            javax.swing.text.SimpleAttributeSet fallback = attributes(fallbackFont, color);
+            javax.swing.text.StyledDocument doc = getStyledDocument();
+            StringBuilder run = new StringBuilder();
+            javax.swing.text.SimpleAttributeSet runAttrs = null;
+            try {
+                for (int i = 0; i < text.length(); i++) {
+                    char ch = text.charAt(i);
+                    javax.swing.text.SimpleAttributeSet attrs;
+                    if (latinFont.canDisplay(ch)) {
+                        attrs = latin;
+                    } else if (cjkFont.canDisplay(ch)) {
+                        attrs = cjk;
+                    } else {
+                        attrs = fallback;
+                    }
+                    if (runAttrs != null && attrs != runAttrs) {
+                        doc.insertString(doc.getLength(), run.toString(), runAttrs);
+                        run.setLength(0);
+                    }
+                    runAttrs = attrs;
+                    run.append(ch);
+                }
+                if (run.length() > 0) {
+                    doc.insertString(doc.getLength(), run.toString(), runAttrs);
+                }
+            } catch (javax.swing.text.BadLocationException ignored) {
+                // 追加到文档末尾不会越界
+            }
+        }
+
+        private static javax.swing.text.SimpleAttributeSet attributes(Font font, Color color) {
+            javax.swing.text.SimpleAttributeSet a = new javax.swing.text.SimpleAttributeSet();
+            javax.swing.text.StyleConstants.setFontFamily(a, font.getFamily());
+            javax.swing.text.StyleConstants.setFontSize(a, font.getSize());
+            javax.swing.text.StyleConstants.setForeground(a, color);
+            return a;
+        }
+
+        /** 由父容器在宽度变化时调用。 */
+        @Override
         public void setFixedWidth(int width) {
             if (width > 0 && width != fixedWidth) {
                 fixedWidth = width;

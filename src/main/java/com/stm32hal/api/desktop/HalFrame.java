@@ -97,7 +97,7 @@ public final class HalFrame extends JFrame {
     private final JList<Api> list = new JList<>(listModel);
     private final JPanel detail = new JPanel(new GridBagLayout());
     private final JScrollPane detailScroll = Ui.scroll(detail);
-    private final List<WrapArea> wrapAreas = new ArrayList<>();
+    private final List<Ui.Sizable> wrapAreas = new ArrayList<>();
     private boolean categoryMode = false;
     private int detailRow;
 
@@ -1058,7 +1058,7 @@ public final class HalFrame extends JFrame {
 
         JPanel head = new JPanel(new BorderLayout(8, 0));
         head.setOpaque(false);
-        head.add(Ui.label(title, Ui.mono(10f, Font.BOLD), Ui.MUTED), BorderLayout.WEST);
+        head.add(Ui.label(title, Ui.sans(10f, Font.BOLD), Ui.MUTED), BorderLayout.WEST);
         Ui.GhostButton copy = new Ui.GhostButton("复制");
         copy.addActionListener(e -> {
             Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(code), null);
@@ -1070,7 +1070,9 @@ public final class HalFrame extends JFrame {
         head.add(copy, BorderLayout.EAST);
         card.add(head, BorderLayout.NORTH);
 
-        WrapArea area = wrap(code, Ui.mono(12f, Font.PLAIN), Ui.alpha(Ui.TEXT, 0.92f), false, 24);
+        Ui.CodeArea area = new Ui.CodeArea(code, Ui.alpha(Ui.TEXT, 0.96f));
+        area.putClientProperty("inset", 24);
+        wrapAreas.add(area);
         area.setBorder(new EmptyBorder(6, 0, 0, 0));
         card.add(area, BorderLayout.CENTER);
         return card;
@@ -1088,8 +1090,9 @@ public final class HalFrame extends JFrame {
         if (width <= 0) {
             return;
         }
-        for (WrapArea area : wrapAreas) {
-            Object insetObj = area.getClientProperty("inset");
+        for (Ui.Sizable area : wrapAreas) {
+            JComponent comp = (JComponent) area;
+            Object insetObj = comp.getClientProperty("inset");
             int inset = insetObj instanceof Integer ? (Integer) insetObj : 0;
             area.setFixedWidth(Math.max((int) (160 * Ui.SCALE), width - (int) (44 * Ui.SCALE) - inset));
         }
